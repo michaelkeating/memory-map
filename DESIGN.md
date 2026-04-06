@@ -373,14 +373,53 @@ memory-map/
 
 ---
 
-## 12. Open Questions
+## 12. Design Decisions
 
-1. **Block-level IDs**: Should we assign IDs to individual bullets from day one (like Roam) or add this later? Adding later means a migration, but adding now adds complexity to the MVP.
+1. **Block-level IDs**: Deferred to Phase 3. Not needed for MVP; we'll add a migration path when the time comes.
 
-2. **Offline support**: Should the PWA work fully offline with sync-on-reconnect? This significantly increases complexity (needs a client-side DB and conflict resolution).
+2. **Offline support**: Deferred. Single-user with Git versioning makes eventual sync straightforward. Not a day-one priority.
 
-3. **Plugin architecture**: How much extensibility do we want? A full plugin system (like Obsidian) is a major undertaking. An alternative is a simple "custom CSS + API hooks" approach.
+3. **Extensibility**: API-first approach (not a full plugin system). Custom CSS themes, REST/WebSocket API as the integration layer, and a config-driven file reference system for external files (Google Drive, PDFs, images). This keeps the core simple while enabling any external tool or agent to extend functionality. A richer plugin system can be added later if needed.
 
-4. **Graph persistence**: Should node positions in the graph view be saved and restored, or always computed fresh? Saved positions feel more personal but create state to manage.
+4. **Graph position persistence**: Hybrid approach. Positions are auto-computed via force-directed layout by default. Dragging a node "pins" it to that position. Pinned positions persist across sessions. An "unpin" option resets individual nodes to auto-layout, and a "reset view" recomputes the entire graph. This gives spatial memory where you want it without requiring manual arrangement of every new page.
 
-5. **Multi-user**: Is this strictly single-user, or should it support a small team (e.g., family/partner)? Multi-user adds auth complexity but is a natural extension.
+5. **Multi-user**: Single-user for the foreseeable future. Auth is simplified to a single passphrase for browser access and API keys for agents.
+
+---
+
+## 13. External File References
+
+Pages can reference files outside the Markdown graph:
+
+```markdown
+Check the [[quarterly report]](gdrive://1a2b3c4d5e) for details.
+
+See the architecture diagram: ![[arch.png]](file:///data/attachments/arch.png)
+```
+
+### Supported reference types
+
+| Scheme | Example | Behavior |
+|--------|---------|----------|
+| `gdrive://` | `gdrive://FILE_ID` | Links to Google Drive; renders preview if available |
+| `file://` | `file:///data/attachments/photo.jpg` | Local file on the host machine |
+| `http(s)://` | `https://example.com/doc.pdf` | External web resource |
+
+### Configuration
+
+A `references.yaml` config file maps schemes to behaviors:
+
+```yaml
+handlers:
+  gdrive:
+    base_url: "https://drive.google.com/file/d/{id}"
+    preview: iframe        # iframe, thumbnail, or link-only
+    mirror_path: /data/gdrive-mirror/{id}  # optional local mirror
+  file:
+    allowed_paths:
+      - /data/attachments
+      - /data/gdrive-mirror
+    preview: inline        # render images/PDFs inline
+```
+
+This lets agents and the UI know how to resolve and display external references, and restricts file access to safe directories.
