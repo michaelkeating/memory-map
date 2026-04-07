@@ -1,0 +1,310 @@
+import type Anthropic from "@anthropic-ai/sdk";
+import type {
+  OrganizerOperations,
+  Page,
+} from "@memory-map/shared";
+import type { LLMProvider } from "./provider.js";
+import type { PageStore } from "../storage/page-store.js";
+import type { AssociationStore } from "../storage/association-store.js";
+import type { LinkIndex } from "../engine/link-index.js";
+import type { WebSocketHub } from "../ws/hub.js";
+
+const SYSTEM_PROMPT = `You are the intelligence layer of Memory Map, a personal knowledge graph.
+
+When the user sends a message, you must:
+1. RESPOND conversationally — confirm what you organized, surface related knowledge, ask clarifying questions if needed
+2. CALL the organize_knowledge tool to create/update pages and associations in the knowledge graph
+
+You have access to the user's existing knowledge graph context (provided below). Use it to:
+- Avoid creating duplicate pages (check existing pages and aliases)
+- Create semantic associations between new and existing content
+- Update existing pages when new information modifies what's already known
+
+RULES:
+- Every person mentioned should get their own page (tagged "person")
+- Every distinct project, topic, or concept gets its own page
+- Use [[Wikilinks]] liberally in page content to link between pages
+- Association reasons must explain WHY the connection exists, not just WHAT it is
+- Weights: 0.9+ = strong direct relationship, 0.5-0.8 = moderate, 0.1-0.4 = weak/tangential
+- If the user is asking a QUESTION (not providing new information), you may call the tool with empty arrays
+- For questions, search the graph context and synthesize an answer from the user's own knowledge
+- Keep page content concise but informative — capture the key facts and context`;
+
+const ORGANIZE_TOOL: Anthropic.Tool = {
+  name: "organize_knowledge",
+  description:
+    "Create or update pages and semantic associations in the knowledge graph based on the user's input.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      create_pages: {
+        type: "array",
+        description: "New pages to create in the knowledge graph",
+        items: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "Page title (use Title Case)",
+            },
+            content: {
+              type: "string",
+              description:
+                "Markdown content with [[Wikilinks]] to other pages",
+            },
+            tags: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                'Tags like "person", "project", "concept", "company"',
+            },
+            aliases: {
+              type: "array",
+              items: { type: "string" },
+              description: "Alternative names for this page",
+            },
+          },
+          required: ["title", "content", "tags"],
+        },
+      },
+      update_pages: {
+        type: "array",
+        description: "Existing pages to update",
+        items: {
+          type: "object",
+          properties: {
+            slug: {
+              type: "string",
+              description: "The slug of the page to update",
+            },
+            append: {
+              type: "string",
+              description: "Content to append to the page",
+            },
+            replace_content: {
+              type: "string",
+              description: "Full replacement content (use sparingly)",
+            },
+          },
+          required: ["slug"],
+        },
+      },
+      create_associations: {
+        type: "array",
+        description: "Semantic associations to create between pages",
+        items: {
+          type: "object",
+          properties: {
+            source: {
+              type: "string",
+              description: "Source page slug or title",
+            },
+            target: {
+              type: "string",
+              description: "Target page slug or title",
+            },
+            type: {
+              type: "string",
+              enum: [
+                "related_to",
+                "informed_by",
+                "contradicts",
+                "alternative_to",
+                "stakeholder",
+                "evolved_into",
+                "depends_on",
+                "instance_of",
+              ],
+            },
+            weight: {
+              type: "number",
+              description: "Association strength 0.0-1.0",
+            },
+            reason: {
+              type: "string",
+              description: "WHY this association exists",
+            },
+          },
+          required: ["source", "target", "type", "weight", "reason"],
+        },
+      },
+      update_associations: {
+        type: "array",
+        description: "Existing associations to update",
+        items: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            target: { type: "string" },
+            new_weight: { type: "number" },
+            reason: { type: "string" },
+          },
+          required: ["source", "target", "new_weight", "reason"],
+        },
+      },
+    },
+    required: [
+      "create_pages",
+      "update_pages",
+      "create_associations",
+      "update_associations",
+    ],
+  },
+};
+
+export class AutoOrganizer {
+  constructor(
+    private llm: LLMProvider,
+    private pageStore: PageStore,
+    private associationStore: AssociationStore,
+    private linkIndex: LinkIndex,
+    private wsHub: WebSocketHub
+  ) {}
+
+  async process(
+    userMessage: string,
+    chatHistory: Array<{ role: "user" | "assistant"; content: string }>
+  ): Promise<{ response: string; operations: OrganizerOperations }> {
+    // Build context from knowledge graph
+    const context = this.buildContext(userMessage);
+
+    const system = SYSTEM_PROMPT + "\n\n" + context;
+
+    const result = await this.llm.chat({
+      system,
+      messages: chatHistory,
+      tools: [ORGANIZE_TOOL],
+      maxTokens: 4096,
+    });
+
+    // Parse tool use
+    const operations = this.parseOperations(result.toolUse);
+
+    // Execute operations
+    await this.executeOperations(operations);
+
+    return { response: result.text, operations };
+  }
+
+  private buildContext(userMessage: string): string {
+    const allTitles = this.pageStore.allTitles();
+
+    // Search for relevant pages
+    let relevantPages: Page[] = [];
+    try {
+      // FTS5 needs special quoting for queries with special chars
+      const safeQuery = userMessage.replace(/[^\w\s]/g, " ").trim();
+      if (safeQuery) {
+        relevantPages = this.pageStore.search(safeQuery, 10);
+      }
+    } catch {
+      // FTS query failed, that's ok
+    }
+
+    // Get associations between found pages
+    const pageIds = relevantPages.map((p) => p.frontmatter.id);
+    const associations = this.associationStore.getBetween(pageIds);
+
+    let context = "";
+
+    if (relevantPages.length > 0) {
+      context += "EXISTING PAGES (relevant to this message):\n";
+      for (const p of relevantPages) {
+        context += `- ${p.frontmatter.title} (slug: ${p.slug}): ${p.content.slice(0, 500)}\n`;
+      }
+      context += "\n";
+    }
+
+    if (associations.length > 0) {
+      context += "EXISTING ASSOCIATIONS:\n";
+      for (const a of associations) {
+        context += `- [${a.type}, weight: ${a.weight}]: ${a.reason}\n`;
+      }
+      context += "\n";
+    }
+
+    if (allTitles.length > 0) {
+      context += `ALL PAGE TITLES (for duplicate detection):\n${allTitles.join(", ")}\n`;
+    } else {
+      context +=
+        "The knowledge graph is currently empty. This is the user's first interaction.\n";
+    }
+
+    return context;
+  }
+
+  private parseOperations(
+    toolUse: Array<{ name: string; input: unknown }>
+  ): OrganizerOperations {
+    const empty: OrganizerOperations = {
+      createPages: [],
+      updatePages: [],
+      createAssociations: [],
+      updateAssociations: [],
+    };
+
+    const call = toolUse.find((t) => t.name === "organize_knowledge");
+    if (!call) return empty;
+
+    const input = call.input as any;
+
+    return {
+      createPages: (input.create_pages ?? []).map((p: any) => ({
+        title: p.title,
+        content: p.content,
+        tags: p.tags ?? [],
+        aliases: p.aliases ?? [],
+      })),
+      updatePages: (input.update_pages ?? []).map((p: any) => ({
+        slug: p.slug,
+        append: p.append,
+        replaceContent: p.replace_content,
+      })),
+      createAssociations: (input.create_associations ?? []).map((a: any) => ({
+        source: a.source,
+        target: a.target,
+        type: a.type,
+        weight: a.weight,
+        reason: a.reason,
+      })),
+      updateAssociations: (input.update_associations ?? []).map((a: any) => ({
+        source: a.source,
+        target: a.target,
+        newWeight: a.new_weight,
+        reason: a.reason,
+      })),
+    };
+  }
+
+  private async executeOperations(ops: OrganizerOperations): Promise<void> {
+    // Create pages first (so associations can reference them)
+    for (const op of ops.createPages) {
+      const page = this.pageStore.create(op);
+      this.linkIndex.updateForPage(page.frontmatter.id, page.links);
+      this.wsHub.broadcast({ type: "page:created", page });
+    }
+
+    for (const op of ops.updatePages) {
+      const page = this.pageStore.update(op);
+      if (page) {
+        this.linkIndex.updateForPage(page.frontmatter.id, page.links);
+        this.wsHub.broadcast({ type: "page:updated", page });
+      }
+    }
+
+    for (const op of ops.createAssociations) {
+      const assoc = this.associationStore.create(op, this.llm.modelId);
+      if (assoc) {
+        this.wsHub.broadcast({ type: "association:created", association: assoc });
+      }
+    }
+
+    for (const op of ops.updateAssociations) {
+      const assoc = this.associationStore.update(op, this.llm.modelId);
+      if (assoc) {
+        this.wsHub.broadcast({ type: "association:updated", association: assoc });
+      }
+    }
+  }
+}
+
