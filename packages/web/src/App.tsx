@@ -36,7 +36,11 @@ export function App() {
       </header>
 
       <ConnectorsPanel open={connectorsOpen} onClose={() => setConnectorsOpen(false)} />
-      <PageViewer pageId={activePageId} onClose={() => setActivePageId(null)} />
+      <PageViewer
+        pageId={activePageId}
+        onClose={() => setActivePageId(null)}
+        onNavigate={(id) => setActivePageId(id)}
+      />
 
       <PanelGroup direction="horizontal" className="flex-1">
         <Panel defaultSize={42} minSize={25}>

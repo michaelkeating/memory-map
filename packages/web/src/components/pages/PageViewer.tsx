@@ -7,6 +7,7 @@ import { useGraphStore } from "../../hooks/useGraph.js";
 interface PageViewerProps {
   pageId: string | null;
   onClose: () => void;
+  onNavigate: (id: string) => void;
 }
 
 interface PageData {
@@ -15,7 +16,7 @@ interface PageData {
   associations: Association[];
 }
 
-export function PageViewer({ pageId, onClose }: PageViewerProps) {
+export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
   const [data, setData] = useState<PageData | null>(null);
   const [loading, setLoading] = useState(false);
   const nodes = useGraphStore((s) => s.nodes);
@@ -48,8 +49,28 @@ export function PageViewer({ pageId, onClose }: PageViewerProps) {
 
   if (!pageId) return null;
 
-  const nodeLookup = new Map(nodes.map((n) => [n.id, n]));
-  const titleFor = (id: string) => nodeLookup.get(id)?.title ?? id.slice(0, 8);
+  // Build title→id and slug→id maps for resolving wikilinks
+  const idByTitle = new Map<string, string>();
+  const idByLowerTitle = new Map<string, string>();
+  const idBySlug = new Map<string, string>();
+  const titleById = new Map<string, string>();
+  for (const n of nodes) {
+    idByTitle.set(n.title, n.id);
+    idByLowerTitle.set(n.title.toLowerCase(), n.id);
+    idBySlug.set(n.slug, n.id);
+    titleById.set(n.id, n.title);
+  }
+
+  const titleFor = (id: string) => titleById.get(id) ?? id.slice(0, 8);
+
+  const resolveWikilink = (target: string): string | null => {
+    return (
+      idByTitle.get(target) ??
+      idByLowerTitle.get(target.toLowerCase()) ??
+      idBySlug.get(slugify(target)) ??
+      null
+    );
+  };
 
   return (
     <>
@@ -73,9 +94,7 @@ export function PageViewer({ pageId, onClose }: PageViewerProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {loading && (
-            <div className="p-6 text-sm text-zinc-400">Loading…</div>
-          )}
+          {loading && <div className="p-6 text-sm text-zinc-400">Loading…</div>}
           {!loading && !data && (
             <div className="p-6 text-sm text-zinc-400">Page not found.</div>
           )}
@@ -109,8 +128,12 @@ export function PageViewer({ pageId, onClose }: PageViewerProps) {
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    // Render [[wikilinks]] as styled spans
-                    p: ({ children }) => <p>{renderWikilinks(children, titleFor)}</p>,
+                    p: ({ children }) => (
+                      <p>{renderWikilinks(children, resolveWikilink, onNavigate)}</p>
+                    ),
+                    li: ({ children }) => (
+                      <li>{renderWikilinks(children, resolveWikilink, onNavigate)}</li>
+                    ),
                   }}
                 >
                   {data.page.content}
@@ -122,12 +145,15 @@ export function PageViewer({ pageId, onClose }: PageViewerProps) {
                   <h3 className="text-xs uppercase tracking-wider text-zinc-400 mb-3">
                     Backlinks ({data.backlinks.length})
                   </h3>
-                  <ul className="space-y-1.5">
+                  <ul className="space-y-1">
                     {data.backlinks.map((bl) => (
                       <li key={bl.frontmatter.id}>
-                        <span className="text-sm text-zinc-700">
+                        <button
+                          onClick={() => onNavigate(bl.frontmatter.id)}
+                          className="text-sm text-zinc-700 hover:text-zinc-900 hover:underline underline-offset-2 decoration-zinc-300 text-left w-full py-1"
+                        >
                           {bl.frontmatter.title}
-                        </span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -143,40 +169,41 @@ export function PageViewer({ pageId, onClose }: PageViewerProps) {
                     {data.associations.map((assoc) => {
                       const otherId =
                         assoc.sourceId === pageId ? assoc.targetId : assoc.sourceId;
-                      const direction =
-                        assoc.sourceId === pageId ? "→" : "←";
+                      const direction = assoc.sourceId === pageId ? "→" : "←";
                       return (
-                        <li
-                          key={assoc.id}
-                          className="rounded-md border border-zinc-200 p-3 text-sm"
-                        >
-                          <div className="flex items-baseline justify-between gap-3">
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className="text-zinc-400 text-xs font-mono">
-                                {direction}
-                              </span>
-                              <span className="font-medium text-zinc-900 truncate">
-                                {titleFor(otherId)}
+                        <li key={assoc.id}>
+                          <button
+                            onClick={() => onNavigate(otherId)}
+                            className="block w-full text-left rounded-md border border-zinc-200 p-3 text-sm hover:border-zinc-400 hover:bg-zinc-50 transition"
+                          >
+                            <div className="flex items-baseline justify-between gap-3">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="text-zinc-400 text-xs font-mono">
+                                  {direction}
+                                </span>
+                                <span className="font-medium text-zinc-900 truncate">
+                                  {titleFor(otherId)}
+                                </span>
+                              </div>
+                              <span className="text-[10px] uppercase tracking-wider text-zinc-400 whitespace-nowrap">
+                                {assoc.type.replace(/_/g, " ")}
                               </span>
                             </div>
-                            <span className="text-[10px] uppercase tracking-wider text-zinc-400 whitespace-nowrap">
-                              {assoc.type.replace("_", " ")}
-                            </span>
-                          </div>
-                          <div className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
-                            {assoc.reason}
-                          </div>
-                          <div className="mt-2 flex items-center gap-2">
-                            <div className="flex-1 h-1 bg-zinc-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-zinc-900"
-                                style={{ width: `${assoc.weight * 100}%` }}
-                              />
+                            <div className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
+                              {assoc.reason}
                             </div>
-                            <span className="text-[10px] text-zinc-400 tabular-nums">
-                              {assoc.weight.toFixed(2)}
-                            </span>
-                          </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              <div className="flex-1 h-1 bg-zinc-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-zinc-900"
+                                  style={{ width: `${assoc.weight * 100}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-zinc-400 tabular-nums">
+                                {assoc.weight.toFixed(2)}
+                              </span>
+                            </div>
+                          </button>
                         </li>
                       );
                     })}
@@ -192,23 +219,40 @@ export function PageViewer({ pageId, onClose }: PageViewerProps) {
 }
 
 /**
- * Walk the markdown children and replace [[Page]] occurrences with styled spans.
+ * Walk markdown children and replace [[Page]] occurrences with clickable buttons.
  */
 function renderWikilinks(
   children: React.ReactNode,
-  _titleFor: (id: string) => string
+  resolve: (target: string) => string | null,
+  onNavigate: (id: string) => void
 ): React.ReactNode {
   if (typeof children === "string") {
     const parts = children.split(/(\[\[[^\]]+\]\])/g);
     return parts.map((part, i) => {
-      const match = part.match(/^\[\[([^\]]+)\]\]$/);
+      const match = part.match(/^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/);
       if (match) {
+        const target = match[1].trim();
+        const display = (match[2] ?? target).trim();
+        const id = resolve(target);
+        if (id) {
+          return (
+            <button
+              key={i}
+              onClick={() => onNavigate(id)}
+              className="px-1 py-0.5 rounded bg-zinc-100 text-zinc-800 text-[0.875em] hover:bg-zinc-200 transition cursor-pointer"
+            >
+              {display}
+            </button>
+          );
+        }
+        // Unresolved wikilink — render as gray, non-clickable
         return (
           <span
             key={i}
-            className="px-1 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[0.875em]"
+            className="px-1 py-0.5 rounded bg-zinc-50 text-zinc-400 text-[0.875em]"
+            title="Page not found"
           >
-            {match[1]}
+            {display}
           </span>
         );
       }
@@ -217,10 +261,17 @@ function renderWikilinks(
   }
   if (Array.isArray(children)) {
     return children.map((c, i) => (
-      <span key={i}>{renderWikilinks(c, _titleFor)}</span>
+      <span key={i}>{renderWikilinks(c, resolve, onNavigate)}</span>
     ));
   }
   return children;
+}
+
+function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function formatDate(iso: string): string {
