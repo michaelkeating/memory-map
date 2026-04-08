@@ -50,8 +50,6 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
       .finally(() => setLoading(false));
   }, [pageId]);
 
-  if (!pageId) return null;
-
   // Build title→id and slug→id maps for resolving wikilinks
   const idByTitle = new Map<string, string>();
   const idByLowerTitle = new Map<string, string>();
@@ -76,13 +74,7 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
   };
 
   return (
-    <>
-      <div
-        className="fixed inset-0 bg-zinc-900/20 backdrop-blur-sm z-40"
-        onClick={onClose}
-      />
-
-      <div className="fixed top-0 right-0 h-full w-[520px] bg-white border-l border-zinc-200 z-50 shadow-2xl flex flex-col">
+    <div className="h-full bg-white flex flex-col">
         <div className="h-14 border-b border-zinc-200 flex items-center justify-between px-5 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs uppercase tracking-wider text-zinc-400">Page</span>
@@ -102,19 +94,31 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
                 {isPinned ? "Pinned" : "Pin"}
               </button>
             )}
-            <button
-              onClick={onClose}
-              className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-100 transition"
-              aria-label="Close"
-            >
-              ×
-            </button>
+            {pageId && (
+              <button
+                onClick={onClose}
+                className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-100 transition"
+                aria-label="Clear selection"
+                title="Clear selection"
+              >
+                ×
+              </button>
+            )}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {loading && <div className="p-6 text-sm text-zinc-400">Loading…</div>}
-          {!loading && !data && (
+          {!pageId && (
+            <div className="h-full flex items-center justify-center px-6 text-center">
+              <p className="text-sm text-zinc-400 max-w-[260px] leading-relaxed">
+                Click a node in the graph to view its page here.
+              </p>
+            </div>
+          )}
+          {pageId && loading && (
+            <div className="p-6 text-sm text-zinc-400">Loading…</div>
+          )}
+          {pageId && !loading && !data && (
             <div className="p-6 text-sm text-zinc-400">Page not found.</div>
           )}
           {data && (
@@ -232,8 +236,7 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
             </div>
           )}
         </div>
-      </div>
-    </>
+    </div>
   );
 }
 

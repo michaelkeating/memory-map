@@ -36,19 +36,22 @@ export function App() {
       </header>
 
       <ConnectorsPanel open={connectorsOpen} onClose={() => setConnectorsOpen(false)} />
-      <PageViewer
-        pageId={activePageId}
-        onClose={() => setActivePageId(null)}
-        onNavigate={(id) => setActivePageId(id)}
-      />
 
       <PanelGroup direction="horizontal" className="flex-1">
-        <Panel defaultSize={42} minSize={25}>
+        <Panel defaultSize={28} minSize={20}>
           <ChatPanel />
         </Panel>
         <PanelResizeHandle className="w-px bg-zinc-200 hover:bg-zinc-300 transition-colors data-[resize-handle-state=drag]:bg-zinc-900" />
-        <Panel defaultSize={58} minSize={25}>
+        <Panel defaultSize={42} minSize={25}>
           <GraphCanvas onNodeClick={(id) => setActivePageId(id)} />
+        </Panel>
+        <PanelResizeHandle className="w-px bg-zinc-200 hover:bg-zinc-300 transition-colors data-[resize-handle-state=drag]:bg-zinc-900" />
+        <Panel defaultSize={30} minSize={20}>
+          <PageViewer
+            pageId={activePageId}
+            onClose={() => setActivePageId(null)}
+            onNavigate={(id) => setActivePageId(id)}
+          />
         </Panel>
       </PanelGroup>
     </div>
