@@ -1,27 +1,111 @@
 @import "tailwindcss";
 
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #fafafa;
+  --bg-muted: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #09090b;
+  --text-muted: #71717a;
+  --text-subtle: #a1a1aa;
+  --accent: #18181b;
+  --accent-fg: #ffffff;
+}
+
 body {
   margin: 0;
   font-family:
-    "Inter",
     -apple-system,
     BlinkMacSystemFont,
+    "Inter",
     "Segoe UI",
     Roboto,
     sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--text);
 }
 
-/* Scrollbar styling for dark theme */
+/* Light scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: #1f2937;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #4b5563;
-  border-radius: 4px;
+  background: #d4d4d8;
+  border-radius: 5px;
+  border: 2px solid var(--bg);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  background: #a1a1aa;
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: 2px;
+}
+
+/* Markdown prose tweaks */
+.prose-mm {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.prose-mm p {
+  margin: 0 0 0.75em;
+}
+.prose-mm p:last-child {
+  margin-bottom: 0;
+}
+.prose-mm h1,
+.prose-mm h2,
+.prose-mm h3 {
+  font-weight: 600;
+  margin: 1em 0 0.5em;
+  color: var(--text);
+}
+.prose-mm h1 { font-size: 1.25em; }
+.prose-mm h2 { font-size: 1.1em; }
+.prose-mm h3 { font-size: 1em; }
+.prose-mm a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+.prose-mm a:hover {
+  text-decoration-color: var(--text);
+}
+.prose-mm code {
+  background: var(--bg-muted);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.875em;
+}
+.prose-mm pre {
+  background: var(--bg-muted);
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.875em;
+}
+.prose-mm ul,
+.prose-mm ol {
+  margin: 0.5em 0 0.75em;
+  padding-left: 1.5em;
+}
+.prose-mm li {
+  margin: 0.25em 0;
+}
+.prose-mm blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 1em;
+  margin: 0.75em 0;
+  color: var(--text-muted);
 }

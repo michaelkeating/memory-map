@@ -14,7 +14,6 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
     if (!trimmed || disabled) return;
     onSend(trimmed);
     setValue("");
-    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -36,25 +35,25 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   };
 
   return (
-    <div className="border-t border-gray-700 p-4">
-      <div className="flex gap-2">
+    <div className="border-t border-zinc-200 px-5 py-4 bg-white">
+      <div className="relative flex items-end gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 focus-within:border-zinc-400 transition">
         <textarea
           ref={textareaRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
-          placeholder="Tell me something, or ask a question..."
+          placeholder="Tell me something, or ask a question…"
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none rounded-lg bg-gray-800 border border-gray-600 px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+          className="flex-1 resize-none bg-transparent text-[14px] text-zinc-900 placeholder-zinc-400 focus:outline-none disabled:opacity-50 py-1"
         />
         <button
           onClick={handleSubmit}
           disabled={disabled || !value.trim()}
-          className="px-4 py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition"
+          className="px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-zinc-900 transition"
         >
-          {disabled ? "..." : "Send"}
+          {disabled ? "…" : "Send"}
         </button>
       </div>
     </div>

@@ -51,29 +51,27 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
 
   return (
     <>
-      {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 z-40"
+        className="fixed inset-0 bg-zinc-900/20 backdrop-blur-sm z-40"
         onClick={onClose}
       />
 
-      {/* Slide-out panel */}
-      <div className="fixed top-0 right-0 h-full w-96 bg-gray-900 border-l border-gray-700 z-50 shadow-2xl flex flex-col">
-        <div className="h-12 border-b border-gray-800 flex items-center justify-between px-4">
-          <h2 className="text-lg font-semibold">Connectors</h2>
+      <div className="fixed top-0 right-0 h-full w-[400px] bg-white border-l border-zinc-200 z-50 shadow-2xl flex flex-col">
+        <div className="h-14 border-b border-zinc-200 flex items-center justify-between px-5">
+          <h2 className="text-[15px] font-semibold text-zinc-900">Connectors</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-100 text-xl"
+            className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-100 transition"
             aria-label="Close"
           >
             ×
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {loading && <p className="text-gray-500 text-sm">Loading...</p>}
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {loading && <p className="text-zinc-400 text-sm">Loading…</p>}
           {!loading && connectors.length === 0 && (
-            <p className="text-gray-500 text-sm">No connectors registered.</p>
+            <p className="text-zinc-400 text-sm">No connectors registered.</p>
           )}
           {connectors.map((c) => (
             <ConnectorCard
@@ -101,35 +99,36 @@ function ConnectorCard({
   onToggle: () => void;
   onSync: () => void;
 }) {
-  const lastSync = connector.lastSyncAt
-    ? formatRelative(connector.lastSyncAt)
-    : "never";
+  const lastSync = connector.lastSyncAt ? formatRelative(connector.lastSyncAt) : "never";
 
   return (
-    <div className="rounded-lg border border-gray-700 bg-gray-800 p-4 space-y-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="font-medium text-gray-100">{connector.name}</h3>
-          <p className="text-xs text-gray-500 mt-0.5">{connector.type}</p>
+    <div className="rounded-lg border border-zinc-200 bg-white p-4 space-y-3 hover:border-zinc-300 transition">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-medium text-zinc-900 text-sm">{connector.name}</h3>
+          <p className="text-xs text-zinc-500 mt-0.5">{connector.type}</p>
         </div>
         <button
           onClick={onToggle}
-          className={`relative w-11 h-6 rounded-full transition-colors ${
-            connector.enabled ? "bg-blue-600" : "bg-gray-600"
+          className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
+            connector.enabled ? "bg-zinc-900" : "bg-zinc-200"
           }`}
+          aria-label={connector.enabled ? "Disable" : "Enable"}
         >
           <span
-            className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-              connector.enabled ? "translate-x-5" : ""
+            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+              connector.enabled ? "translate-x-4" : ""
             }`}
           />
         </button>
       </div>
 
-      <div className="text-xs text-gray-400 space-y-1">
-        <div>Last sync: <span className="text-gray-300">{lastSync}</span></div>
+      <div className="text-xs text-zinc-500 space-y-1">
+        <div>
+          Last sync: <span className="text-zinc-700 tabular-nums">{lastSync}</span>
+        </div>
         {connector.lastError && (
-          <div className="text-red-400">Error: {connector.lastError}</div>
+          <div className="text-red-600 text-xs">Error: {connector.lastError}</div>
         )}
       </div>
 
@@ -137,9 +136,9 @@ function ConnectorCard({
         <button
           onClick={onSync}
           disabled={syncing}
-          className="px-3 py-1.5 text-xs rounded bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-50"
+          className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 disabled:opacity-50 transition"
         >
-          {syncing ? "Syncing..." : "Sync now"}
+          {syncing ? "Syncing…" : "Sync now"}
         </button>
       </div>
     </div>
