@@ -48,10 +48,15 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const dragMovedRef = useRef<boolean>(false);
   const panningRef = useRef<{ startX: number; startY: number } | null>(null);
   const adjacencyRef = useRef<Map<string, Set<string>>>(new Map());
-  const pinnedRef = useRef<Set<string>>(new Set());
+  const pinnedIdsRef = useRef<Set<string>>(new Set());
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
 
-  const { nodes, edges, freshNodes } = useGraphStore();
+  const { nodes, edges, freshNodes, pinnedIds, pin } = useGraphStore();
+
+  // Mirror reactive pinnedIds into a ref for the rAF render loop
+  useEffect(() => {
+    pinnedIdsRef.current = pinnedIds;
+  }, [pinnedIds]);
 
   // Build adjacency map for hover highlighting
   useEffect(() => {
@@ -71,7 +76,12 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
     const simNodes: SimNode[] = nodes.map((n) => {
       const old = oldNodeMap.get(n.id);
-      const isPinned = pinnedRef.current.has(n.id);
+      const isPinned = pinnedIds.has(n.id);
+      // For previously-pinned nodes the old node already has fx/fy set.
+      // For newly pinned nodes we use the current x/y as the fixed position.
+      // For newly unpinned nodes we leave fx/fy undefined to release them.
+      const fx = isPinned ? (old?.fx ?? old?.x) : undefined;
+      const fy = isPinned ? (old?.fy ?? old?.y) : undefined;
       return {
         id: n.id,
         title: n.title,
@@ -82,8 +92,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         y: old?.y,
         vx: old?.vx,
         vy: old?.vy,
-        fx: isPinned ? old?.x : undefined,
-        fy: isPinned ? old?.y : undefined,
+        fx,
+        fy,
         fixed: isPinned,
       };
     });
@@ -109,7 +119,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       }
       simRef.current.alpha(0.3).restart();
     }
-  }, [nodes, edges, freshNodes]);
+  }, [nodes, edges, freshNodes, pinnedIds]);
 
   // Initialize simulation + render loop
   useEffect(() => {
@@ -228,10 +238,11 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           ? `rgba(245, 158, 11, ${opacity})`
           : applyOpacity(getNodeColor(node.tags), opacity);
         ctx.fill();
-        ctx.strokeStyle = node.fixed
-          ? `rgba(24, 24, 27, ${0.9 * opacity})`
+        const isPinned = pinnedIdsRef.current.has(node.id);
+        ctx.strokeStyle = isPinned
+          ? `rgba(24, 24, 27, ${0.95 * opacity})`
           : `rgba(255, 255, 255, ${0.95 * opacity})`;
-        ctx.lineWidth = node.fixed ? 2 : 1.5;
+        ctx.lineWidth = isPinned ? 2.5 : 1.5;
         ctx.stroke();
 
         // Label
@@ -369,12 +380,12 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
       if (wasDragging) {
         if (moved) {
-          // Real drag — pin the node
-          pinnedRef.current.add(wasDragging.id);
+          // Real drag — pin the node at its dragged position
           wasDragging.fixed = true;
+          pin(wasDragging.id);
         } else {
           // No mouse movement — treat as click
-          if (!pinnedRef.current.has(wasDragging.id)) {
+          if (!pinnedIds.has(wasDragging.id)) {
             wasDragging.fx = undefined;
             wasDragging.fy = undefined;
             wasDragging.fixed = false;
@@ -412,18 +423,11 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const { x, y } = toGraphCoords(e.clientX, e.clientY);
-      const node = findNodeAt(x, y);
-      if (node && pinnedRef.current.has(node.id)) {
-        // Unpin
-        pinnedRef.current.delete(node.id);
-        node.fx = undefined;
-        node.fy = undefined;
-        node.fixed = false;
-        if (simRef.current) simRef.current.alpha(0.3).restart();
-      }
+      // Reserved for future shortcuts. Single click currently fires first
+      // and opens the page viewer, so we don't unpin here.
+      void e;
     },
-    [toGraphCoords, findNodeAt]
+    []
   );
 
   const resetView = useCallback(() => {

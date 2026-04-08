@@ -20,6 +20,9 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
   const [data, setData] = useState<PageData | null>(null);
   const [loading, setLoading] = useState(false);
   const nodes = useGraphStore((s) => s.nodes);
+  const pinnedIds = useGraphStore((s) => s.pinnedIds);
+  const togglePin = useGraphStore((s) => s.togglePin);
+  const isPinned = pageId ? pinnedIds.has(pageId) : false;
 
   useEffect(() => {
     if (!pageId) {
@@ -84,13 +87,29 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs uppercase tracking-wider text-zinc-400">Page</span>
           </div>
-          <button
-            onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-100 transition"
-            aria-label="Close"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-2">
+            {pageId && (
+              <button
+                onClick={() => togglePin(pageId)}
+                className={`text-xs px-2.5 py-1 rounded-md border transition flex items-center gap-1.5 ${
+                  isPinned
+                    ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300"
+                }`}
+                title={isPinned ? "Unpin from graph" : "Pin to graph"}
+              >
+                <PinIcon filled={isPinned} />
+                {isPinned ? "Pinned" : "Pin"}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-100 transition"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -265,6 +284,24 @@ function renderWikilinks(
     ));
   }
   return children;
+}
+
+function PinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+    </svg>
+  );
 }
 
 function slugify(title: string): string {

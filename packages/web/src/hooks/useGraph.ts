@@ -11,20 +11,47 @@ interface GraphStore {
   nodes: GraphNode[];
   edges: GraphEdge[];
   freshNodes: Set<string>;
+  pinnedIds: Set<string>;
 
   setGraph: (g: GraphData) => void;
   addNode: (page: Page) => void;
   updateNode: (page: Page) => void;
   addEdge: (assoc: Association) => void;
   updateEdge: (assoc: Association) => void;
+  pin: (id: string) => void;
+  unpin: (id: string) => void;
+  togglePin: (id: string) => void;
 }
 
 export const useGraphStore = create<GraphStore>((set) => ({
   nodes: [],
   edges: [],
   freshNodes: new Set(),
+  pinnedIds: new Set(),
 
   setGraph: (g) => set({ nodes: g.nodes, edges: g.edges }),
+
+  pin: (id) =>
+    set((state) => {
+      const next = new Set(state.pinnedIds);
+      next.add(id);
+      return { pinnedIds: next };
+    }),
+
+  unpin: (id) =>
+    set((state) => {
+      const next = new Set(state.pinnedIds);
+      next.delete(id);
+      return { pinnedIds: next };
+    }),
+
+  togglePin: (id) =>
+    set((state) => {
+      const next = new Set(state.pinnedIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { pinnedIds: next };
+    }),
 
   addNode: (page) =>
     set((state) => {
