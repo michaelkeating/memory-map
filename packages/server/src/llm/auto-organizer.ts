@@ -9,6 +9,33 @@ import type { AssociationStore } from "../storage/association-store.js";
 import type { LinkIndex } from "../engine/link-index.js";
 import type { WebSocketHub } from "../ws/hub.js";
 
+const INGEST_SYSTEM_PROMPT = `You are the intelligence layer of Memory Map, a personal knowledge graph.
+
+You are processing content captured from an external source (not direct user input). Your job is to extract MEANINGFUL events, conversations, decisions, people, projects, and ideas, and organize them into the knowledge graph.
+
+BE SELECTIVE. Most captured content is routine noise (terminal output, code editing, browsing, idle screens). Only create pages for things that genuinely matter:
+- People mentioned in meetings or messages
+- Decisions or commitments made
+- New projects or ideas being discussed
+- Important conversations or events
+- Significant questions or problems raised
+
+DO NOT create pages for:
+- Routine code editing or terminal output
+- App UI chrome or menus
+- Repeated content already in the graph
+- Trivial activity (checking email, switching tabs, etc.)
+
+If nothing meaningful is in the content, call organize_knowledge with all empty arrays. That's a valid and important response — silence is better than noise.
+
+When you DO create pages:
+- Tag people with "person", projects with "project", topics with "concept"
+- Use [[Wikilinks]] to connect entities
+- Create semantic associations with weights and clear "why" reasons
+- Update existing pages rather than creating duplicates
+
+Avoid calling out the source mechanism in page content (don't write "captured via Screenpipe at..."). Just record the underlying facts.`;
+
 const SYSTEM_PROMPT = `You are the intelligence layer of Memory Map, a personal knowledge graph.
 
 When the user sends a message, you must:
@@ -184,6 +211,37 @@ export class AutoOrganizer {
     await this.executeOperations(operations);
 
     return { response: result.text, operations };
+  }
+
+  /**
+   * Ingest content from a connector (Screenpipe, Gmail, etc.).
+   * Uses a different system prompt that frames the content as
+   * passive observation rather than direct user input.
+   */
+  async ingest(content: string, sourceLabel: string): Promise<OrganizerOperations> {
+    const context = this.buildContext(content.slice(0, 2000));
+
+    const system = `${INGEST_SYSTEM_PROMPT}
+
+SOURCE: ${sourceLabel}
+
+${context}`;
+
+    const result = await this.llm.chat({
+      system,
+      messages: [
+        {
+          role: "user",
+          content: `Here is captured content from ${sourceLabel}. Extract anything meaningful and organize it into the knowledge graph. Skip routine/trivial content. Be selective — only create pages for things that genuinely matter.\n\n---\n\n${content}`,
+        },
+      ],
+      tools: [ORGANIZE_TOOL],
+      maxTokens: 4096,
+    });
+
+    const operations = this.parseOperations(result.toolUse);
+    await this.executeOperations(operations);
+    return operations;
   }
 
   private buildContext(userMessage: string): string {

@@ -103,6 +103,20 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
+// === Connectors ===
+export interface ConnectorRecord {
+  id: string;
+  type: string; // "screenpipe", "gmail", "granola", etc.
+  name: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  state: Record<string, unknown>;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // === LLM Auto-Organizer Output ===
 export interface CreatePageOp {
   title: string;

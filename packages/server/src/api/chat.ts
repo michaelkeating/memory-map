@@ -30,7 +30,17 @@ export function registerChatRoutes(
     }));
 
     // Process through LLM auto-organizer
-    const { response, operations } = await organizer.process(message, chatMessages);
+    let response: string;
+    let operations: Awaited<ReturnType<typeof organizer.process>>["operations"];
+    try {
+      const result = await organizer.process(message, chatMessages);
+      response = result.response;
+      operations = result.operations;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      request.log.error({ err }, "LLM processing failed");
+      return reply.code(500).send({ error: "LLM processing failed", detail: errMsg });
+    }
 
     // Save assistant message
     const assistantTimestamp = new Date().toISOString();
@@ -41,7 +51,7 @@ export function registerChatRoutes(
       graphDelta: {
         pagesCreated: operations.createPages.map((p) => p.title),
         pagesUpdated: operations.updatePages.map((p) => p.slug),
-        associationsCreated: [], // IDs are generated during execution
+        associationsCreated: [],
       },
     });
 

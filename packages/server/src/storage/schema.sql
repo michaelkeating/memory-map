@@ -74,3 +74,19 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   graph_delta TEXT,
   created_at  TEXT NOT NULL
 );
+
+-- Connectors: external data sources
+CREATE TABLE IF NOT EXISTS connectors (
+  id              TEXT PRIMARY KEY,
+  type            TEXT NOT NULL,            -- "screenpipe", "gmail", "granola", etc.
+  name            TEXT NOT NULL,
+  enabled         INTEGER NOT NULL DEFAULT 0,
+  config          TEXT NOT NULL DEFAULT '{}',  -- JSON: connector-specific settings
+  state           TEXT NOT NULL DEFAULT '{}',  -- JSON: cursor, last_sync, stats
+  last_sync_at    TEXT,
+  last_error      TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_connectors_type ON connectors(type);

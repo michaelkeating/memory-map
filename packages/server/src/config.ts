@@ -1,7 +1,9 @@
 import { config as loadDotenv } from "dotenv";
 import path from "node:path";
 
-loadDotenv();
+// Load .env from project root (two levels up from packages/server)
+loadDotenv({ path: path.resolve(process.cwd(), ".env") });
+loadDotenv({ path: path.resolve(process.cwd(), "../../.env") });
 
 export const config = {
   port: parseInt(process.env.PORT ?? "3001", 10),

@@ -17,6 +17,10 @@ import { WebSocketHub } from "./ws/hub.js";
 import { registerChatRoutes } from "./api/chat.js";
 import { registerPageRoutes } from "./api/pages.js";
 import { registerGraphRoutes } from "./api/graph.js";
+import { registerConnectorRoutes } from "./api/connectors.js";
+import { ConnectorStore } from "./connectors/store.js";
+import { ConnectorRunner } from "./connectors/runner.js";
+import { ScreenpipeConnector } from "./connectors/screenpipe.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,9 +46,22 @@ async function main() {
   // Initialize WebSocket hub
   const wsHub = new WebSocketHub();
 
+  // Check API key
+  if (!config.anthropicApiKey || config.anthropicApiKey === "sk-ant-...") {
+    console.error("WARNING: ANTHROPIC_API_KEY not set. Chat will fail.");
+  } else {
+    console.log(`Anthropic API key loaded (${config.anthropicApiKey.slice(0, 12)}...)`);
+  }
+
   // Initialize LLM
   const llm = new ClaudeProvider("claude-sonnet-4-20250514", config.anthropicApiKey);
   const organizer = new AutoOrganizer(llm, pageStore, associationStore, linkIndex, wsHub);
+
+  // Initialize connectors
+  const connectorStore = new ConnectorStore(db);
+  const connectorRunner = new ConnectorRunner(connectorStore, organizer, graphService, wsHub);
+  connectorRunner.register(new ScreenpipeConnector());
+  console.log("Connectors registered: screenpipe");
 
   // Create Fastify app
   const app = Fastify({ logger: true });
@@ -67,6 +84,7 @@ async function main() {
   registerChatRoutes(app, organizer, chatStore, graphService, wsHub);
   registerPageRoutes(app, pageStore, associationStore, linkIndex);
   registerGraphRoutes(app, graphService);
+  registerConnectorRoutes(app, connectorStore, connectorRunner);
 
   // Health check
   app.get("/api/health", async () => ({
@@ -102,6 +120,7 @@ async function main() {
   // Graceful shutdown
   const shutdown = () => {
     console.log("Shutting down...");
+    connectorRunner.stop();
     app.close();
     closeDb();
     process.exit(0);
