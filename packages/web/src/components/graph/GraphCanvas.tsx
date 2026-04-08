@@ -202,11 +202,11 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         ctx.lineTo(target.x, target.y!);
 
         if (link.type === "explicit") {
-          ctx.strokeStyle = `rgba(82, 82, 91, ${0.7 * opacity})`;
+          ctx.strokeStyle = `rgba(24, 24, 27, ${0.55 * opacity})`;
           ctx.lineWidth = 1.2;
           ctx.setLineDash([]);
         } else {
-          ctx.strokeStyle = `rgba(63, 63, 70, ${link.weight * 0.6 * opacity})`;
+          ctx.strokeStyle = `rgba(24, 24, 27, ${link.weight * 0.5 * opacity})`;
           ctx.lineWidth = 0.8 + link.weight * 1.5;
           ctx.setLineDash([3, 4]);
         }
@@ -241,8 +241,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         const isPinned = pinnedIdsRef.current.has(node.id);
         ctx.strokeStyle = isPinned
           ? `rgba(24, 24, 27, ${0.95 * opacity})`
-          : `rgba(255, 255, 255, ${0.95 * opacity})`;
-        ctx.lineWidth = isPinned ? 2.5 : 1.5;
+          : `rgba(24, 24, 27, ${0.35 * opacity})`;
+        ctx.lineWidth = isPinned ? 2.5 : 1;
         ctx.stroke();
 
         // Label
@@ -256,14 +256,14 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           const metrics = ctx.measureText(text);
           const padX = 4;
           const labelY = node.y! + radius + 4;
-          ctx.fillStyle = `rgba(255, 255, 255, ${0.92 * opacity})`;
+          ctx.fillStyle = `rgba(255, 255, 255, ${0.95 * opacity})`;
           ctx.fillRect(
             node.x - metrics.width / 2 - padX,
             labelY,
             metrics.width + padX * 2,
             fontSize + 4
           );
-          ctx.fillStyle = `rgba(24, 24, 27, ${opacity})`;
+          ctx.fillStyle = `rgba(24, 24, 27, ${0.95 * opacity})`;
           ctx.fillText(text, node.x, labelY + fontSize);
         }
       }
@@ -436,7 +436,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   }, []);
 
   return (
-    <div ref={containerRef} className="w-full h-full bg-zinc-950 relative overflow-hidden">
+    <div ref={containerRef} className="w-full h-full bg-white relative overflow-hidden">
       <canvas
         ref={canvasRef}
         onMouseMove={handleMouseMove}
@@ -455,21 +455,21 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       />
 
       {nodes.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center text-zinc-600 pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center text-zinc-400 pointer-events-none">
           <p className="text-sm">Your knowledge graph will appear here</p>
         </div>
       )}
 
       {/* Hover tooltip */}
       {hoveredNode && (
-        <div className="absolute bottom-4 left-4 px-3 py-2 rounded-md bg-zinc-900/90 backdrop-blur border border-zinc-700 text-xs text-zinc-100 pointer-events-none max-w-xs">
+        <div className="absolute bottom-4 left-4 px-3 py-2 rounded-md bg-white/95 backdrop-blur border border-zinc-200 shadow-sm text-xs text-zinc-900 pointer-events-none max-w-xs">
           <div className="font-medium">{hoveredNode.title}</div>
           {hoveredNode.tags.length > 0 && (
-            <div className="text-zinc-400 text-[10px] mt-0.5">
+            <div className="text-zinc-500 text-[10px] mt-0.5">
               {hoveredNode.tags.join(" · ")}
             </div>
           )}
-          <div className="text-zinc-500 text-[10px] mt-0.5">
+          <div className="text-zinc-400 text-[10px] mt-0.5">
             {hoveredNode.linkCount} connection{hoveredNode.linkCount !== 1 ? "s" : ""}
           </div>
         </div>
@@ -479,28 +479,28 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">
         <button
           onClick={resetView}
-          className="px-2.5 py-1.5 rounded-md bg-zinc-900/80 backdrop-blur border border-zinc-700 text-xs text-zinc-200 hover:bg-zinc-800 transition"
+          className="px-2.5 py-1.5 rounded-md bg-white/95 backdrop-blur border border-zinc-200 shadow-sm text-xs text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
         >
           Reset view
         </button>
       </div>
 
       {/* Legend */}
-      <div className="absolute top-4 left-4 px-3 py-2.5 rounded-md bg-zinc-900/80 backdrop-blur border border-zinc-700 text-[10px] text-zinc-300 space-y-1.5 pointer-events-none">
+      <div className="absolute top-4 left-4 px-3 py-2.5 rounded-md bg-white/95 backdrop-blur border border-zinc-200 shadow-sm text-[10px] text-zinc-600 space-y-1.5 pointer-events-none">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-violet-400" />
           <span>Person</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
           <span>Project</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-orange-400" />
+          <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
           <span>Company</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
+          <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
           <span>Concept</span>
         </div>
       </div>
@@ -531,7 +531,7 @@ function drawGrid(
   const offsetX = vp.x % size;
   const offsetY = vp.y % size;
 
-  ctx.strokeStyle = "rgba(63, 63, 70, 0.15)";
+  ctx.strokeStyle = "rgba(228, 228, 231, 0.6)";
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = offsetX; x < width; x += size) {
