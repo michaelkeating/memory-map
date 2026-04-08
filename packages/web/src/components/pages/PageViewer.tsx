@@ -94,31 +94,20 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
                 {isPinned ? "Pinned" : "Pin"}
               </button>
             )}
-            {pageId && (
-              <button
-                onClick={onClose}
-                className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-100 transition"
-                aria-label="Clear selection"
-                title="Clear selection"
-              >
-                ×
-              </button>
-            )}
+            <button
+              onClick={onClose}
+              className="text-zinc-400 hover:text-zinc-900 text-2xl leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-100 transition"
+              aria-label="Close page panel"
+              title="Close"
+            >
+              ×
+            </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {!pageId && (
-            <div className="h-full flex items-center justify-center px-6 text-center">
-              <p className="text-sm text-zinc-400 max-w-[260px] leading-relaxed">
-                Click a node in the graph to view its page here.
-              </p>
-            </div>
-          )}
-          {pageId && loading && (
-            <div className="p-6 text-sm text-zinc-400">Loading…</div>
-          )}
-          {pageId && !loading && !data && (
+          {loading && <div className="p-6 text-sm text-zinc-400">Loading…</div>}
+          {!loading && !data && (
             <div className="p-6 text-sm text-zinc-400">Page not found.</div>
           )}
           {data && (

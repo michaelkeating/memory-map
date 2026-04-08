@@ -3,7 +3,11 @@ import { useChat } from "../../hooks/useChat.js";
 import { ChatMessage } from "./ChatMessage.js";
 import { ChatInput } from "./ChatInput.js";
 
-export function ChatPanel() {
+interface ChatPanelProps {
+  onOpenPage: (id: string) => void;
+}
+
+export function ChatPanel({ onOpenPage }: ChatPanelProps) {
   const { messages, sendMessage, isLoading } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -30,7 +34,12 @@ export function ChatPanel() {
           </div>
         )}
         {messages.map((msg, i) => (
-          <ChatMessage key={i} role={msg.role} content={msg.content} />
+          <ChatMessage
+            key={i}
+            role={msg.role}
+            content={msg.content}
+            onOpenPage={onOpenPage}
+          />
         ))}
         {isLoading && (
           <div className="flex justify-start">

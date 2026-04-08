@@ -12,6 +12,15 @@ export function App() {
   const { nodes, edges } = useGraphStore();
   const [connectorsOpen, setConnectorsOpen] = useState(false);
   const [activePageId, setActivePageId] = useState<string | null>(null);
+  const [pageViewOpen, setPageViewOpen] = useState(false);
+
+  const openPage = (id: string) => {
+    setActivePageId(id);
+    setPageViewOpen(true);
+  };
+  const closePage = () => {
+    setPageViewOpen(false);
+  };
 
   return (
     <div className="h-screen flex flex-col bg-white text-zinc-900">
@@ -37,22 +46,30 @@ export function App() {
 
       <ConnectorsPanel open={connectorsOpen} onClose={() => setConnectorsOpen(false)} />
 
-      <PanelGroup direction="horizontal" className="flex-1">
-        <Panel defaultSize={28} minSize={20}>
-          <ChatPanel />
+      <PanelGroup
+        key={pageViewOpen ? "with-page" : "no-page"}
+        direction="horizontal"
+        className="flex-1"
+      >
+        <Panel defaultSize={pageViewOpen ? 28 : 38} minSize={20}>
+          <ChatPanel onOpenPage={openPage} />
         </Panel>
         <PanelResizeHandle className="w-px bg-zinc-200 hover:bg-zinc-300 transition-colors data-[resize-handle-state=drag]:bg-zinc-900" />
-        <Panel defaultSize={42} minSize={25}>
-          <GraphCanvas onNodeClick={(id) => setActivePageId(id)} />
+        <Panel defaultSize={pageViewOpen ? 42 : 62} minSize={25}>
+          <GraphCanvas onNodeClick={openPage} />
         </Panel>
-        <PanelResizeHandle className="w-px bg-zinc-200 hover:bg-zinc-300 transition-colors data-[resize-handle-state=drag]:bg-zinc-900" />
-        <Panel defaultSize={30} minSize={20}>
-          <PageViewer
-            pageId={activePageId}
-            onClose={() => setActivePageId(null)}
-            onNavigate={(id) => setActivePageId(id)}
-          />
-        </Panel>
+        {pageViewOpen && (
+          <>
+            <PanelResizeHandle className="w-px bg-zinc-200 hover:bg-zinc-300 transition-colors data-[resize-handle-state=drag]:bg-zinc-900" />
+            <Panel defaultSize={30} minSize={20}>
+              <PageViewer
+                pageId={activePageId}
+                onClose={closePage}
+                onNavigate={openPage}
+              />
+            </Panel>
+          </>
+        )}
       </PanelGroup>
     </div>
   );
