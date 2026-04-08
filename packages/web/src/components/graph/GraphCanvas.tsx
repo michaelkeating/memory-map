@@ -44,6 +44,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, scale: 1 });
   const hoveredIdRef = useRef<string | null>(null);
   const draggingRef = useRef<SimNode | null>(null);
+  const dragStartRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const dragMovedRef = useRef<boolean>(false);
   const panningRef = useRef<{ startX: number; startY: number } | null>(null);
   const adjacencyRef = useRef<Map<string, Set<string>>>(new Map());
   const pinnedRef = useRef<Set<string>>(new Set());
@@ -311,6 +313,14 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
       // Drag node
       if (draggingRef.current) {
+        // Detect if this drag has actually moved
+        if (dragStartRef.current) {
+          const dx = e.clientX - dragStartRef.current.clientX;
+          const dy = e.clientY - dragStartRef.current.clientY;
+          if (dx * dx + dy * dy > 16) {
+            dragMovedRef.current = true;
+          }
+        }
         const { x, y } = toGraphCoords(e.clientX, e.clientY);
         draggingRef.current.fx = x;
         draggingRef.current.fy = y;
@@ -336,8 +346,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       const { x, y } = toGraphCoords(e.clientX, e.clientY);
       const node = findNodeAt(x, y);
       if (node) {
-        // Start drag
+        // Start drag (might turn out to be a click)
         draggingRef.current = node;
+        dragStartRef.current = { clientX: e.clientX, clientY: e.clientY };
+        dragMovedRef.current = false;
         node.fx = node.x;
         node.fy = node.y;
         canvasRef.current!.style.cursor = "grabbing";
@@ -353,33 +365,31 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const handleMouseUp = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       const wasDragging = draggingRef.current;
-      const wasPanning = panningRef.current;
+      const moved = dragMovedRef.current;
 
       if (wasDragging) {
-        // Pin if user actually moved it
-        const { x, y } = toGraphCoords(e.clientX, e.clientY);
-        const moved =
-          Math.abs((wasDragging.fx ?? 0) - (wasDragging.x ?? 0)) > 2 ||
-          Math.abs((wasDragging.fy ?? 0) - (wasDragging.y ?? 0)) > 2;
         if (moved) {
+          // Real drag — pin the node
           pinnedRef.current.add(wasDragging.id);
           wasDragging.fixed = true;
         } else {
-          // It was just a click — release and trigger click
-          wasDragging.fx = undefined;
-          wasDragging.fy = undefined;
+          // No mouse movement — treat as click
           if (!pinnedRef.current.has(wasDragging.id)) {
+            wasDragging.fx = undefined;
+            wasDragging.fy = undefined;
             wasDragging.fixed = false;
           }
           if (onNodeClick) onNodeClick(wasDragging.id);
         }
-      } else if (wasPanning) {
-        // Plain canvas click (no drag) — clear nothing
       }
 
       draggingRef.current = null;
+      dragStartRef.current = null;
+      dragMovedRef.current = false;
       panningRef.current = null;
-      const node = findNodeAt(...Object.values(toGraphCoords(e.clientX, e.clientY)) as [number, number]);
+
+      const { x, y } = toGraphCoords(e.clientX, e.clientY);
+      const node = findNodeAt(x, y);
       canvasRef.current!.style.cursor = node ? "pointer" : "default";
     },
     [toGraphCoords, findNodeAt, onNodeClick]
@@ -430,6 +440,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         onMouseUp={handleMouseUp}
         onMouseLeave={() => {
           draggingRef.current = null;
+          dragStartRef.current = null;
+          dragMovedRef.current = false;
           panningRef.current = null;
           hoveredIdRef.current = null;
           setHoveredNode(null);
