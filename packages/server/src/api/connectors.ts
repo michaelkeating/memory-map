@@ -41,20 +41,31 @@ export function registerConnectorRoutes(
     return connectorStore.getById(c.id);
   });
 
+  // Trigger a sync. Connector syncs can take minutes (Notion paging,
+  // rate limits, LLM calls per item) so we kick off the work in the
+  // background and return immediately. The client can poll
+  // GET /api/connectors to see when lastSyncAt updates and what the
+  // result was.
   app.post<{ Params: { id: string } }>(
     "/api/connectors/:id/sync",
     async (request, reply) => {
       const c = connectorStore.getById(request.params.id);
       if (!c) return reply.code(404).send({ error: "Connector not found" });
 
+      // Validate it can start (so we surface "already running" errors
+      // to the client immediately rather than running into them later)
       try {
-        await runner.runOnce(c.type);
-        const updated = connectorStore.getById(c.id);
-        return { ok: true, connector: updated };
+        // Fire-and-forget. Errors are recorded in connector.lastError
+        // by the runner so the UI sees them via /api/connectors.
+        runner.runOnce(c.type).catch((err) => {
+          console.error(`[connector:${c.type}] background sync error:`, err);
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return reply.code(500).send({ error: "Sync failed", detail: msg });
       }
+
+      return { ok: true, started: true };
     }
   );
 }

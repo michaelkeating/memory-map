@@ -54,8 +54,30 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
 
   const triggerSync = async (c: ConnectorRecord) => {
     setSyncingId(c.id);
+    const startedAt = c.lastSyncAt;
     try {
-      await fetch(`/api/connectors/${c.id}/sync`, { method: "POST" });
+      const res = await fetch(`/api/connectors/${c.id}/sync`, { method: "POST" });
+      if (!res.ok) {
+        // Surface immediate errors (e.g. "already running")
+        const json = await res.json();
+        alert(json.detail ?? json.error ?? "Sync failed to start");
+        return;
+      }
+      // Sync runs in the background. Poll until lastSyncAt changes
+      // or we hit a max wait of 5 minutes.
+      const pollDeadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < pollDeadline) {
+        await new Promise((r) => setTimeout(r, 2500));
+        const cur = await fetch("/api/connectors").then((r) => r.json());
+        if (Array.isArray(cur)) {
+          setConnectors(cur);
+          const updated = cur.find((x: ConnectorRecord) => x.id === c.id);
+          if (updated && updated.lastSyncAt !== startedAt) {
+            // Sync finished (success or error)
+            break;
+          }
+        }
+      }
     } finally {
       setSyncingId(null);
       refresh();
