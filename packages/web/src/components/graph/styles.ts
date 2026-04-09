@@ -65,8 +65,18 @@ export interface GraphStyle {
     hoverBorder: string;
   };
 
-  // Visual effects
-  texture: "none" | "chalk" | "marker";
+  // Rendering engine — controls HOW shapes get drawn
+  engine: "clean" | "sketchy";
+
+  // Engine-specific tuning (optional)
+  sketchy?: {
+    roughness: number;       // 0 = clean, 1 = normal, 3 = very rough
+    bowing: number;          // line curvature amount
+    fillStyle?: "solid" | "hachure" | "cross-hatch" | "dots" | "zigzag" | "zigzag-line";
+    fillWeight?: number;
+    hachureGap?: number;
+    hachureAngle?: number;
+  };
 }
 
 // ─── Clean (default) ──────────────────────────────────────────
@@ -139,7 +149,7 @@ const CLEAN: GraphStyle = {
     hoverBorder: "hover:border-zinc-300",
   },
 
-  texture: "none",
+  engine: "clean",
 };
 
 // ─── Chalkboard ───────────────────────────────────────────────
@@ -212,7 +222,12 @@ const CHALKBOARD: GraphStyle = {
     hoverBorder: "hover:border-[#5a9473]",
   },
 
-  texture: "chalk",
+  engine: "sketchy",
+  sketchy: {
+    roughness: 1.6,
+    bowing: 1.2,
+    fillStyle: "solid",
+  },
 };
 
 // ─── Whiteboard ───────────────────────────────────────────────
@@ -285,7 +300,12 @@ const WHITEBOARD: GraphStyle = {
     hoverBorder: "hover:border-zinc-400",
   },
 
-  texture: "marker",
+  engine: "sketchy",
+  sketchy: {
+    roughness: 2,
+    bowing: 1.5,
+    fillStyle: "solid",
+  },
 };
 
 // ─── Exports ──────────────────────────────────────────────────
@@ -303,97 +323,15 @@ export function rgba(c: RGB, opacity: number): string {
 }
 
 /**
- * Draw a line with texture:
- * - "none": clean single stroke
- * - "chalk": multiple thin semi-transparent strokes with perpendicular offsets
- * - "marker": thick round-cap stroke with a lighter second pass for edge variation
+ * Stable seed for a string ID. rough.js takes a numeric seed and produces
+ * deterministic output for the same seed — so an edge always wobbles the
+ * same way regardless of frame.
  */
-export function drawLine(
-  ctx: CanvasRenderingContext2D,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  style: GraphStyle
-) {
-  if (style.texture === "none") {
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-    return;
+export function hashSeed(...parts: string[]): number {
+  const str = parts.join("|");
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 33) ^ str.charCodeAt(i);
   }
-
-  // Perpendicular unit vector for offset strokes
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 1) return;
-  const nx = -dy / len;
-  const ny = dx / len;
-
-  if (style.texture === "chalk") {
-    // Save current stroke settings
-    const savedAlpha = ctx.globalAlpha;
-    const savedWidth = ctx.lineWidth;
-    const savedCap = ctx.lineCap;
-    ctx.lineCap = "round";
-
-    // Draw 4 thin passes with random perpendicular offsets
-    const passes = 4;
-    const baseWidth = savedWidth * 0.4;
-    for (let i = 0; i < passes; i++) {
-      const offset = (Math.random() - 0.5) * savedWidth * 1.2;
-      ctx.lineWidth = baseWidth + Math.random() * baseWidth * 0.5;
-      ctx.globalAlpha = savedAlpha * (0.35 + Math.random() * 0.25);
-      ctx.beginPath();
-      ctx.moveTo(x1 + nx * offset, y1 + ny * offset);
-      ctx.lineTo(x2 + nx * offset, y2 + ny * offset);
-      ctx.stroke();
-    }
-
-    ctx.globalAlpha = savedAlpha;
-    ctx.lineWidth = savedWidth;
-    ctx.lineCap = savedCap;
-    return;
-  }
-
-  if (style.texture === "marker") {
-    const savedCap = ctx.lineCap;
-    const savedAlpha = ctx.globalAlpha;
-    const savedWidth = ctx.lineWidth;
-    ctx.lineCap = "round";
-
-    // Main thick stroke
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-
-    // Second lighter pass slightly offset for marker edge
-    ctx.globalAlpha = savedAlpha * 0.3;
-    ctx.lineWidth = savedWidth * 1.4;
-    const off = savedWidth * 0.3;
-    ctx.beginPath();
-    ctx.moveTo(x1 + nx * off, y1 + ny * off);
-    ctx.lineTo(x2 + nx * off, y2 + ny * off);
-    ctx.stroke();
-
-    ctx.globalAlpha = savedAlpha;
-    ctx.lineWidth = savedWidth;
-    ctx.lineCap = savedCap;
-    return;
-  }
-}
-
-/** Draw a circle — always clean (no texture on node outlines) */
-export function drawCircle(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  radius: number,
-  _style: GraphStyle
-) {
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, 2 * Math.PI);
+  return Math.abs(h) % 2147483647;
 }

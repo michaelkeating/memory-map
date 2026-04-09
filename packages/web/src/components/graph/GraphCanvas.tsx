@@ -8,13 +8,14 @@ import {
   type SimulationNodeDatum,
   type SimulationLinkDatum,
 } from "d3-force";
+import rough from "roughjs";
+import type { RoughCanvas } from "roughjs/bin/canvas";
 import { useGraphStore } from "../../hooks/useGraph.js";
 import {
   GRAPH_STYLES,
   getStyleById,
   rgba,
-  drawLine,
-  drawCircle,
+  hashSeed,
   type GraphStyle,
   type RGB,
 } from "./styles.js";
@@ -59,6 +60,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const adjacencyRef = useRef<Map<string, Set<string>>>(new Map());
   const pinnedIdsRef = useRef<Set<string>>(new Set());
   const styleRef = useRef<GraphStyle>(getStyleById("clean"));
+  const roughRef = useRef<RoughCanvas | null>(null);
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
 
   const { nodes, edges, freshNodes, pinnedIds, pin, graphStyleId, setGraphStyle } =
@@ -140,6 +142,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   useEffect(() => {
     const canvas = canvasRef.current!;
     const container = containerRef.current!;
+    roughRef.current = rough.canvas(canvas);
 
     const resize = () => {
       const dpr = devicePixelRatio || 1;
@@ -224,6 +227,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       }
 
       // Draw edges
+      const rc = roughRef.current;
       for (const link of currentLinks) {
         const source = link.source as SimNode;
         const target = link.target as SimNode;
@@ -234,20 +238,41 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           (highlightSet.has(source.id) && highlightSet.has(target.id));
         const dimFactor = isHighlighted ? 1 : s.edge.dimOpacity;
 
+        let strokeColor: string;
+        let strokeWidth: number;
+        let dash: number[];
         if (link.type === "explicit") {
-          ctx.strokeStyle = rgba(s.edge.explicit.color, s.edge.explicit.opacity * dimFactor);
-          ctx.lineWidth = s.edge.explicit.width;
-          ctx.setLineDash(s.edge.explicit.dash);
+          strokeColor = rgba(s.edge.explicit.color, s.edge.explicit.opacity * dimFactor);
+          strokeWidth = s.edge.explicit.width;
+          dash = s.edge.explicit.dash;
         } else {
-          ctx.strokeStyle = rgba(
+          strokeColor = rgba(
             s.edge.semantic.color,
             link.weight * s.edge.semantic.opacityScale * dimFactor
           );
-          ctx.lineWidth = s.edge.semantic.widthBase + link.weight * s.edge.semantic.widthScale;
-          ctx.setLineDash(s.edge.semantic.dash);
+          strokeWidth = s.edge.semantic.widthBase + link.weight * s.edge.semantic.widthScale;
+          dash = s.edge.semantic.dash;
         }
-        drawLine(ctx, source.x, source.y!, target.x, target.y!, s);
-        ctx.setLineDash([]);
+
+        if (s.engine === "sketchy" && rc) {
+          rc.line(source.x, source.y!, target.x, target.y!, {
+            stroke: strokeColor,
+            strokeWidth,
+            roughness: s.sketchy?.roughness ?? 1.5,
+            bowing: s.sketchy?.bowing ?? 1,
+            seed: hashSeed(source.id, target.id, link.type),
+            strokeLineDash: dash.length > 0 ? dash : undefined,
+          });
+        } else {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.setLineDash(dash);
+          ctx.beginPath();
+          ctx.moveTo(source.x, source.y!);
+          ctx.lineTo(target.x, target.y!);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
       }
 
       // Draw nodes
@@ -269,20 +294,36 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           ctx.fill();
         }
 
-        // Node fill
         const nodeColor = node.isFresh
           ? s.node.freshFill
           : getNodeColor(node.tags, s);
-        drawCircle(ctx, node.x, node.y!, radius, s);
-        ctx.fillStyle = rgba(nodeColor, opacity);
-        ctx.fill();
-
-        // Border
+        const fill = rgba(nodeColor, opacity);
         const bc = isPinned ? s.node.pinnedBorderColor : s.node.borderColor;
         const bw = isPinned ? s.node.pinnedBorderWidth : s.node.borderWidth;
-        ctx.strokeStyle = rgba(bc, (isPinned ? 0.95 : 0.5) * opacity);
-        ctx.lineWidth = bw;
-        ctx.stroke();
+        const stroke = rgba(bc, (isPinned ? 0.95 : 0.5) * opacity);
+
+        if (s.engine === "sketchy" && rc) {
+          rc.circle(node.x, node.y!, radius * 2, {
+            fill,
+            fillStyle: s.sketchy?.fillStyle ?? "solid",
+            fillWeight: s.sketchy?.fillWeight,
+            hachureGap: s.sketchy?.hachureGap,
+            hachureAngle: s.sketchy?.hachureAngle,
+            stroke,
+            strokeWidth: bw,
+            roughness: s.sketchy?.roughness ?? 1.5,
+            bowing: s.sketchy?.bowing ?? 1,
+            seed: hashSeed(node.id),
+          });
+        } else {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y!, radius, 0, 2 * Math.PI);
+          ctx.fillStyle = fill;
+          ctx.fill();
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = bw;
+          ctx.stroke();
+        }
 
         // Label
         if (showLabels && (isHighlighted || isHovered)) {
