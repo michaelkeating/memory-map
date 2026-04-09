@@ -66,8 +66,7 @@ export interface GraphStyle {
   };
 
   // Visual effects
-  handDrawn: boolean; // Adds jitter to lines and node outlines
-  jitterAmount: number;
+  texture: "none" | "chalk" | "marker";
 }
 
 // ─── Clean (default) ──────────────────────────────────────────
@@ -140,8 +139,7 @@ const CLEAN: GraphStyle = {
     hoverBorder: "hover:border-zinc-300",
   },
 
-  handDrawn: false,
-  jitterAmount: 0,
+  texture: "none",
 };
 
 // ─── Chalkboard ───────────────────────────────────────────────
@@ -214,8 +212,7 @@ const CHALKBOARD: GraphStyle = {
     hoverBorder: "hover:border-[#5a9473]",
   },
 
-  handDrawn: true,
-  jitterAmount: 2.5,
+  texture: "chalk",
 };
 
 // ─── Whiteboard ───────────────────────────────────────────────
@@ -288,8 +285,7 @@ const WHITEBOARD: GraphStyle = {
     hoverBorder: "hover:border-zinc-400",
   },
 
-  handDrawn: true,
-  jitterAmount: 3,
+  texture: "marker",
 };
 
 // ─── Exports ──────────────────────────────────────────────────
@@ -306,7 +302,12 @@ export function rgba(c: RGB, opacity: number): string {
   return `rgba(${c.r}, ${c.g}, ${c.b}, ${opacity})`;
 }
 
-/** Draw a line with optional hand-drawn jitter */
+/**
+ * Draw a line with texture:
+ * - "none": clean single stroke
+ * - "chalk": multiple thin semi-transparent strokes with perpendicular offsets
+ * - "marker": thick round-cap stroke with a lighter second pass for edge variation
+ */
 export function drawLine(
   ctx: CanvasRenderingContext2D,
   x1: number,
@@ -315,7 +316,7 @@ export function drawLine(
   y2: number,
   style: GraphStyle
 ) {
-  if (!style.handDrawn) {
+  if (style.texture === "none") {
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
@@ -323,39 +324,76 @@ export function drawLine(
     return;
   }
 
-  const j = style.jitterAmount;
-  const mx = (x1 + x2) / 2 + (Math.random() - 0.5) * j * 3;
-  const my = (y1 + y2) / 2 + (Math.random() - 0.5) * j * 3;
-  ctx.beginPath();
-  ctx.moveTo(x1 + (Math.random() - 0.5) * j, y1 + (Math.random() - 0.5) * j);
-  ctx.quadraticCurveTo(mx, my, x2 + (Math.random() - 0.5) * j, y2 + (Math.random() - 0.5) * j);
-  ctx.stroke();
+  // Perpendicular unit vector for offset strokes
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return;
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  if (style.texture === "chalk") {
+    // Save current stroke settings
+    const savedAlpha = ctx.globalAlpha;
+    const savedWidth = ctx.lineWidth;
+    const savedCap = ctx.lineCap;
+    ctx.lineCap = "round";
+
+    // Draw 4 thin passes with random perpendicular offsets
+    const passes = 4;
+    const baseWidth = savedWidth * 0.4;
+    for (let i = 0; i < passes; i++) {
+      const offset = (Math.random() - 0.5) * savedWidth * 1.2;
+      ctx.lineWidth = baseWidth + Math.random() * baseWidth * 0.5;
+      ctx.globalAlpha = savedAlpha * (0.35 + Math.random() * 0.25);
+      ctx.beginPath();
+      ctx.moveTo(x1 + nx * offset, y1 + ny * offset);
+      ctx.lineTo(x2 + nx * offset, y2 + ny * offset);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = savedAlpha;
+    ctx.lineWidth = savedWidth;
+    ctx.lineCap = savedCap;
+    return;
+  }
+
+  if (style.texture === "marker") {
+    const savedCap = ctx.lineCap;
+    const savedAlpha = ctx.globalAlpha;
+    const savedWidth = ctx.lineWidth;
+    ctx.lineCap = "round";
+
+    // Main thick stroke
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    // Second lighter pass slightly offset for marker edge
+    ctx.globalAlpha = savedAlpha * 0.3;
+    ctx.lineWidth = savedWidth * 1.4;
+    const off = savedWidth * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(x1 + nx * off, y1 + ny * off);
+    ctx.lineTo(x2 + nx * off, y2 + ny * off);
+    ctx.stroke();
+
+    ctx.globalAlpha = savedAlpha;
+    ctx.lineWidth = savedWidth;
+    ctx.lineCap = savedCap;
+    return;
+  }
 }
 
-/** Draw a circle with optional hand-drawn jitter */
+/** Draw a circle — always clean (no texture on node outlines) */
 export function drawCircle(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   radius: number,
-  style: GraphStyle
+  _style: GraphStyle
 ) {
-  if (!style.handDrawn) {
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, 2 * Math.PI);
-    return;
-  }
-
-  const j = style.jitterAmount * 0.4;
-  const steps = 24;
   ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const angle = (i / steps) * 2 * Math.PI;
-    const r = radius + (Math.random() - 0.5) * j * 2;
-    const px = x + Math.cos(angle) * r;
-    const py = y + Math.sin(angle) * r;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
+  ctx.arc(x, y, radius, 0, 2 * Math.PI);
 }
