@@ -66,7 +66,7 @@ export interface GraphStyle {
   };
 
   // Rendering engine — controls HOW shapes get drawn
-  engine: "clean" | "sketchy";
+  engine: "clean" | "sketchy" | "circuit";
 
   // Engine-specific tuning (optional)
   sketchy?: {
@@ -76,6 +76,13 @@ export interface GraphStyle {
     fillWeight?: number;
     hachureGap?: number;
     hachureAngle?: number;
+  };
+
+  circuit?: {
+    cornerRadius: number;    // radius for rounded 90° bends
+    glow: number;            // glow blur amount, 0 to disable
+    traceColor: RGB;         // override edge color (used for glow)
+    dotGrid: boolean;        // use dot grid instead of line grid
   };
 }
 
@@ -308,9 +315,88 @@ const WHITEBOARD: GraphStyle = {
   },
 };
 
+// ─── Circuit ──────────────────────────────────────────────────
+
+const CIRCUIT: GraphStyle = {
+  id: "circuit",
+  name: "Circuit",
+
+  background: "#0a0e1a",
+
+  grid: { color: "rgba(56, 189, 248, 0.18)", opacity: 1 },
+
+  edge: {
+    explicit: {
+      color: { r: 56, g: 189, b: 248 },  // cyan trace
+      opacity: 0.85,
+      width: 1.5,
+      dash: [],
+    },
+    semantic: {
+      color: { r: 56, g: 189, b: 248 },
+      opacityScale: 0.7,
+      widthBase: 1,
+      widthScale: 1,
+      dash: [2, 4],
+    },
+    dimOpacity: 0.15,
+  },
+
+  node: {
+    colors: {
+      person: { r: 244, g: 114, b: 182 },  // hot pink
+      project: { r: 74, g: 222, b: 128 },   // bright green
+      company: { r: 251, g: 191, b: 36 },   // amber
+      default: { r: 56, g: 189, b: 248 },   // cyan
+    },
+    borderColor: { r: 240, g: 250, b: 255 },
+    borderWidth: 1.5,
+    pinnedBorderColor: { r: 255, g: 255, b: 255 },
+    pinnedBorderWidth: 3,
+    dimOpacity: 0.2,
+    freshGlow: { r: 56, g: 189, b: 248 },
+    freshFill: { r: 125, g: 211, b: 252 },
+  },
+
+  label: {
+    font: "'JetBrains Mono', 'SF Mono', 'Consolas', monospace",
+    fontWeight: "500",
+    hoverFontWeight: "600",
+    size: 11,
+    hoverSize: 12,
+    color: { r: 224, g: 242, b: 254 },
+    bgColor: "rgba(10, 14, 26, 0.92)",
+    bgOpacity: 0.92,
+  },
+
+  tooltip: {
+    bg: "bg-[#0a0e1a]/95 backdrop-blur",
+    border: "border border-cyan-900/50",
+    text: "text-cyan-100",
+    muted: "text-cyan-400/60",
+    shadow: "shadow-[0_0_20px_rgba(56,189,248,0.15)]",
+  },
+
+  controls: {
+    bg: "bg-[#0a0e1a]/90 backdrop-blur",
+    border: "border-cyan-900/50",
+    text: "text-cyan-200",
+    hoverBg: "hover:bg-[#111729]",
+    hoverBorder: "hover:border-cyan-700",
+  },
+
+  engine: "circuit",
+  circuit: {
+    cornerRadius: 12,
+    glow: 6,
+    traceColor: { r: 56, g: 189, b: 248 },
+    dotGrid: true,
+  },
+};
+
 // ─── Exports ──────────────────────────────────────────────────
 
-export const GRAPH_STYLES: GraphStyle[] = [CLEAN, CHALKBOARD, WHITEBOARD];
+export const GRAPH_STYLES: GraphStyle[] = [CLEAN, CHALKBOARD, WHITEBOARD, CIRCUIT];
 
 export function getStyleById(id: string): GraphStyle {
   return GRAPH_STYLES.find((s) => s.id === id) ?? CLEAN;
@@ -334,4 +420,52 @@ export function hashSeed(...parts: string[]): number {
     h = (h * 33) ^ str.charCodeAt(i);
   }
   return Math.abs(h) % 2147483647;
+}
+
+/**
+ * Draw an orthogonal (right-angle) path from (x1,y1) to (x2,y2) with
+ * a single elbow and a rounded corner of the given radius. The elbow
+ * direction (horizontal-first vs vertical-first) is chosen by the seed.
+ */
+export function drawOrthogonalPath(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  radius: number,
+  seed: number
+) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const sx = Math.sign(dx);
+  const sy = Math.sign(dy);
+  const horizontalFirst = (seed & 1) === 0;
+
+  // If shapes are essentially aligned, just draw a straight line
+  if (Math.abs(dx) < 1 || Math.abs(dy) < 1) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    return;
+  }
+
+  // Clamp radius so it never overshoots either leg
+  const r = Math.min(radius, Math.abs(dx) / 2, Math.abs(dy) / 2);
+
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  if (horizontalFirst) {
+    // Horizontal leg, then vertical leg, with rounded corner at (x2, y1)
+    ctx.lineTo(x2 - sx * r, y1);
+    ctx.quadraticCurveTo(x2, y1, x2, y1 + sy * r);
+    ctx.lineTo(x2, y2);
+  } else {
+    // Vertical leg, then horizontal leg, with rounded corner at (x1, y2)
+    ctx.lineTo(x1, y2 - sy * r);
+    ctx.quadraticCurveTo(x1, y2, x1 + sx * r, y2);
+    ctx.lineTo(x2, y2);
+  }
+  ctx.stroke();
 }

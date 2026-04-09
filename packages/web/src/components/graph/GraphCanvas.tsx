@@ -16,6 +16,7 @@ import {
   getStyleById,
   rgba,
   hashSeed,
+  drawOrthogonalPath,
   type GraphStyle,
   type RGB,
 } from "./styles.js";
@@ -189,22 +190,36 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       // Background grid
       if (s.grid) {
         const vp = viewportRef.current;
-        const baseSize = 50;
+        const baseSize = s.engine === "circuit" ? 24 : 50;
         const size = baseSize * vp.scale;
         const offsetX = vp.x % size;
         const offsetY = vp.y % size;
-        ctx.strokeStyle = s.grid.color;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let x = offsetX; x < w / dpr; x += size) {
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, h / dpr);
+        const useDots = s.engine === "circuit" && (s.circuit?.dotGrid ?? false);
+
+        if (useDots) {
+          ctx.fillStyle = s.grid.color;
+          const r = Math.max(0.6, 0.9 * vp.scale);
+          for (let y = offsetY; y < h / dpr; y += size) {
+            for (let x = offsetX; x < w / dpr; x += size) {
+              ctx.beginPath();
+              ctx.arc(x, y, r, 0, 2 * Math.PI);
+              ctx.fill();
+            }
+          }
+        } else {
+          ctx.strokeStyle = s.grid.color;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let x = offsetX; x < w / dpr; x += size) {
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, h / dpr);
+          }
+          for (let y = offsetY; y < h / dpr; y += size) {
+            ctx.moveTo(0, y);
+            ctx.lineTo(w / dpr, y);
+          }
+          ctx.stroke();
         }
-        for (let y = offsetY; y < h / dpr; y += size) {
-          ctx.moveTo(0, y);
-          ctx.lineTo(w / dpr, y);
-        }
-        ctx.stroke();
       }
 
       // Apply pan/zoom
@@ -262,11 +277,31 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
             bowing: s.sketchy?.bowing ?? 1,
             seed: hashSeed(source.id, target.id, link.type),
             strokeLineDash: dash.length > 0 ? dash : undefined,
-            // Single sketchy stroke per edge — without this, rough.js
-            // draws every line twice (its default "hand-drawn" effect),
-            // which on connectors just looks like doubled-up parallel lines.
             disableMultiStroke: true,
           });
+        } else if (s.engine === "circuit") {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.setLineDash(dash);
+          if (s.circuit?.glow && s.circuit.glow > 0) {
+            ctx.shadowColor = strokeColor;
+            ctx.shadowBlur = s.circuit.glow * dimFactor;
+          }
+          drawOrthogonalPath(
+            ctx,
+            source.x,
+            source.y!,
+            target.x,
+            target.y!,
+            s.circuit?.cornerRadius ?? 10,
+            hashSeed(source.id, target.id, link.type)
+          );
+          ctx.shadowBlur = 0;
+          ctx.setLineDash([]);
+          ctx.lineCap = "butt";
+          ctx.lineJoin = "miter";
         } else {
           ctx.strokeStyle = strokeColor;
           ctx.lineWidth = strokeWidth;
@@ -319,6 +354,26 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
             bowing: s.sketchy?.bowing ?? 1,
             seed: hashSeed(node.id),
           });
+        } else if (s.engine === "circuit") {
+          // Glow halo
+          if (s.circuit?.glow && s.circuit.glow > 0) {
+            ctx.shadowColor = rgba(nodeColor, opacity);
+            ctx.shadowBlur = s.circuit.glow * 1.5 * (isHovered ? 1.5 : 1);
+          }
+          ctx.beginPath();
+          ctx.arc(node.x, node.y!, radius, 0, 2 * Math.PI);
+          ctx.fillStyle = fill;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          // Outer ring (like a solder pad)
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = bw;
+          ctx.stroke();
+          // Inner dark dot for depth
+          ctx.beginPath();
+          ctx.arc(node.x, node.y!, radius * 0.35, 0, 2 * Math.PI);
+          ctx.fillStyle = `rgba(10, 14, 26, ${0.6 * opacity})`;
+          ctx.fill();
         } else {
           ctx.beginPath();
           ctx.arc(node.x, node.y!, radius, 0, 2 * Math.PI);
