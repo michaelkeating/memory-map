@@ -10,7 +10,11 @@ interface ScheduledConnector {
   intervalSeconds: number;
   timer: NodeJS.Timeout | null;
   running: boolean;
+  runningSince: number | null;
 }
+
+/** Safety: forcibly clear `running` if a sync has been "in progress" longer than this */
+const STUCK_RUN_MS = 10 * 60 * 1000;
 
 export class ConnectorRunner {
   private connectors = new Map<string, ScheduledConnector>();
@@ -35,6 +39,7 @@ export class ConnectorRunner {
       intervalSeconds: connector.defaultPollSeconds,
       timer: null,
       running: false,
+      runningSince: null,
     });
 
     this.applyEnabledState(connector.type);
@@ -72,15 +77,35 @@ export class ConnectorRunner {
   async runOnce(type: string): Promise<void> {
     const sched = this.connectors.get(type);
     if (!sched) throw new Error(`Unknown connector: ${type}`);
+
+    // Safety: forcibly clear a stuck running flag
+    if (sched.running && sched.runningSince) {
+      const heldMs = Date.now() - sched.runningSince;
+      if (heldMs > STUCK_RUN_MS) {
+        console.warn(
+          `[connector:${type}] running flag stuck for ${Math.round(heldMs / 1000)}s — clearing`
+        );
+        sched.running = false;
+        sched.runningSince = null;
+      }
+    }
+
     if (sched.running) {
-      console.log(`[connector:${type}] sync already in progress, skipping`);
-      return;
+      const heldSec = sched.runningSince
+        ? Math.round((Date.now() - sched.runningSince) / 1000)
+        : 0;
+      throw new Error(
+        `Sync already in progress (started ${heldSec}s ago). Try again when it finishes.`
+      );
     }
 
     const record = this.store.getByType(type);
-    if (!record) return;
+    if (!record) {
+      throw new Error(`Connector ${type} not registered`);
+    }
 
     sched.running = true;
+    sched.runningSince = Date.now();
     try {
       console.log(`[connector:${type}] syncing...`);
       const result = await sched.connector.sync(record, async (source) => {
@@ -99,6 +124,7 @@ export class ConnectorRunner {
       throw err;
     } finally {
       sched.running = false;
+      sched.runningSince = null;
     }
   }
 
