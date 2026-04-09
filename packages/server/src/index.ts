@@ -21,6 +21,7 @@ import { registerConnectorRoutes } from "./api/connectors.js";
 import { ConnectorStore } from "./connectors/store.js";
 import { ConnectorRunner } from "./connectors/runner.js";
 import { ScreenpipeConnector } from "./connectors/screenpipe.js";
+import { NotionConnector } from "./connectors/notion.js";
 import { SourceStore } from "./storage/source-store.js";
 import { ProfileService } from "./llm/profile-service.js";
 import { registerProfileRoutes } from "./api/profiles.js";
@@ -81,7 +82,8 @@ async function main() {
   const connectorStore = new ConnectorStore(db);
   const connectorRunner = new ConnectorRunner(connectorStore, organizer, graphService, wsHub);
   connectorRunner.register(new ScreenpipeConnector());
-  console.log("Connectors registered: screenpipe");
+  connectorRunner.register(new NotionConnector());
+  console.log("Connectors registered: screenpipe, notion");
 
   // Create Fastify app
   const app = Fastify({ logger: true });

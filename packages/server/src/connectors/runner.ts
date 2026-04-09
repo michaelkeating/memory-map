@@ -3,6 +3,7 @@ import type { ConnectorStore } from "./store.js";
 import type { AutoOrganizer } from "../llm/auto-organizer.js";
 import type { GraphService } from "../engine/graph-service.js";
 import type { WebSocketHub } from "../ws/hub.js";
+import type { ConnectorTypeInfo } from "@memory-map/shared";
 
 interface ScheduledConnector {
   connector: Connector;
@@ -99,6 +100,16 @@ export class ConnectorRunner {
     } finally {
       sched.running = false;
     }
+  }
+
+  /** Get info about all registered connector types (for the UI) */
+  getTypeInfo(): ConnectorTypeInfo[] {
+    return [...this.connectors.values()].map((s) => ({
+      type: s.connector.type,
+      defaultName: s.connector.defaultName,
+      setupInstructions: s.connector.setupInstructions,
+      configSchema: s.connector.configSchema,
+    }));
   }
 
   /** Stop all timers (graceful shutdown) */

@@ -1,5 +1,5 @@
 import type { Connector, SyncResult, IngestFn } from "./types.js";
-import type { ConnectorRecord } from "@memory-map/shared";
+import type { ConnectorRecord, ConfigField } from "@memory-map/shared";
 
 interface ScreenpipeMemory {
   id: number;
@@ -39,11 +39,43 @@ const DEFAULT_CONFIG: ScreenpipeConfig = {
   ingestHistorical: true,
 };
 
+const SCREENPIPE_CONFIG_SCHEMA: ConfigField[] = [
+  {
+    key: "baseUrl",
+    label: "Screenpipe API URL",
+    type: "text",
+    default: "http://localhost:3030",
+    description: "Where the Screenpipe API is running. Default is fine for local installs.",
+  },
+  {
+    key: "minImportance",
+    label: "Min importance",
+    type: "number",
+    default: 0.5,
+    description: "Skip memories with importance below this threshold (0.0–1.0).",
+  },
+  {
+    key: "pollSeconds",
+    label: "Poll interval (seconds)",
+    type: "number",
+    default: 600,
+  },
+  {
+    key: "ingestHistorical",
+    label: "Ingest historical memories on first sync",
+    type: "boolean",
+    default: true,
+  },
+];
+
 export class ScreenpipeConnector implements Connector {
   readonly type = "screenpipe";
   readonly defaultName = "Screenpipe Memories";
   readonly defaultConfig = DEFAULT_CONFIG as unknown as Record<string, unknown>;
   readonly defaultPollSeconds = DEFAULT_CONFIG.pollSeconds;
+  readonly configSchema = SCREENPIPE_CONFIG_SCHEMA;
+  readonly setupInstructions =
+    "Make sure Screenpipe is running locally. The default URL works for standard installs.";
 
   async sync(record: ConnectorRecord, ingestFn: IngestFn): Promise<SyncResult> {
     const config = { ...DEFAULT_CONFIG, ...(record.config as Partial<ScreenpipeConfig>) };

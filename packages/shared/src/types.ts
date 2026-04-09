@@ -141,6 +141,24 @@ export interface PageProfile {
   stale: boolean;
 }
 
+// === Connector config schema ===
+export interface ConfigField {
+  key: string;
+  label: string;
+  type: "text" | "password" | "number" | "boolean";
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+  placeholder?: string;
+}
+
+export interface ConnectorTypeInfo {
+  type: string;
+  defaultName: string;
+  setupInstructions?: string;
+  configSchema: ConfigField[];
+}
+
 // === Connectors ===
 export interface ConnectorRecord {
   id: string;

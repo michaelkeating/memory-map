@@ -1,4 +1,8 @@
-import type { ConnectorRecord, IngestionSource } from "@memory-map/shared";
+import type {
+  ConnectorRecord,
+  IngestionSource,
+  ConfigField,
+} from "@memory-map/shared";
 
 export type IngestFn = (source: IngestionSource) => Promise<void>;
 
@@ -28,6 +32,12 @@ export interface Connector {
 
   /** Default polling interval in seconds */
   readonly defaultPollSeconds: number;
+
+  /** Schema describing user-editable config fields (for the UI form) */
+  readonly configSchema: ConfigField[];
+
+  /** Optional setup instructions shown in the UI (markdown) */
+  readonly setupInstructions?: string;
 
   /**
    * Run a single sync. Receives the current connector record (config + state).

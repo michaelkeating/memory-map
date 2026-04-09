@@ -11,6 +11,10 @@ export function registerConnectorRoutes(
     return connectorStore.list();
   });
 
+  app.get("/api/connectors/types", async () => {
+    return runner.getTypeInfo();
+  });
+
   app.get<{ Params: { id: string } }>(
     "/api/connectors/:id",
     async (request, reply) => {

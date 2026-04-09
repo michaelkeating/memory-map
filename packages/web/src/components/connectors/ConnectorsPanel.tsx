@@ -1,5 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
-import type { ConnectorRecord } from "@memory-map/shared";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type {
+  ConnectorRecord,
+  ConnectorTypeInfo,
+  ConfigField,
+} from "@memory-map/shared";
 
 interface ConnectorsPanelProps {
   open: boolean;
@@ -8,14 +14,23 @@ interface ConnectorsPanelProps {
 
 export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
   const [connectors, setConnectors] = useState<ConnectorRecord[]>([]);
+  const [typeInfo, setTypeInfo] = useState<Record<string, ConnectorTypeInfo>>({});
   const [loading, setLoading] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/connectors");
-      const data = await res.json();
-      if (Array.isArray(data)) setConnectors(data);
+      const [conns, types] = await Promise.all([
+        fetch("/api/connectors").then((r) => r.json()),
+        fetch("/api/connectors/types").then((r) => r.json()),
+      ]);
+      if (Array.isArray(conns)) setConnectors(conns);
+      if (Array.isArray(types)) {
+        const map: Record<string, ConnectorTypeInfo> = {};
+        for (const t of types) map[t.type] = t;
+        setTypeInfo(map);
+      }
     } catch {
       // ignore
     }
@@ -47,6 +62,15 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
     }
   };
 
+  const saveConfig = async (c: ConnectorRecord, config: Record<string, unknown>) => {
+    await fetch(`/api/connectors/${c.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config }),
+    });
+    refresh();
+  };
+
   if (!open) return null;
 
   return (
@@ -56,7 +80,7 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
         onClick={onClose}
       />
 
-      <div className="fixed top-0 right-0 h-full w-[400px] bg-white border-l border-zinc-200 z-50 shadow-2xl flex flex-col">
+      <div className="fixed top-0 right-0 h-full w-[440px] bg-white border-l border-zinc-200 z-50 shadow-2xl flex flex-col">
         <div className="h-14 border-b border-zinc-200 flex items-center justify-between px-5">
           <h2 className="text-[15px] font-semibold text-zinc-900">Connectors</h2>
           <button
@@ -77,9 +101,15 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
             <ConnectorCard
               key={c.id}
               connector={c}
+              info={typeInfo[c.type]}
               syncing={syncingId === c.id}
+              expanded={expandedId === c.id}
+              onToggleExpand={() =>
+                setExpandedId(expandedId === c.id ? null : c.id)
+              }
               onToggle={() => toggleEnabled(c)}
               onSync={() => triggerSync(c)}
+              onSaveConfig={(config) => saveConfig(c, config)}
             />
           ))}
         </div>
@@ -90,56 +120,189 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
 
 function ConnectorCard({
   connector,
+  info,
   syncing,
+  expanded,
+  onToggleExpand,
   onToggle,
   onSync,
+  onSaveConfig,
 }: {
   connector: ConnectorRecord;
+  info: ConnectorTypeInfo | undefined;
   syncing: boolean;
+  expanded: boolean;
+  onToggleExpand: () => void;
   onToggle: () => void;
   onSync: () => void;
+  onSaveConfig: (config: Record<string, unknown>) => void;
 }) {
   const lastSync = connector.lastSyncAt ? formatRelative(connector.lastSyncAt) : "never";
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 space-y-3 hover:border-zinc-300 transition">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-medium text-zinc-900 text-sm">{connector.name}</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">{connector.type}</p>
-        </div>
-        <button
-          onClick={onToggle}
-          className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-            connector.enabled ? "bg-zinc-900" : "bg-zinc-200"
-          }`}
-          aria-label={connector.enabled ? "Disable" : "Enable"}
-        >
-          <span
-            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
-              connector.enabled ? "translate-x-4" : ""
+    <div className="rounded-lg border border-zinc-200 bg-white overflow-hidden">
+      <div className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-medium text-zinc-900 text-sm">{connector.name}</h3>
+            <p className="text-xs text-zinc-500 mt-0.5">{connector.type}</p>
+          </div>
+          <button
+            onClick={onToggle}
+            className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
+              connector.enabled ? "bg-zinc-900" : "bg-zinc-200"
             }`}
-          />
-        </button>
-      </div>
-
-      <div className="text-xs text-zinc-500 space-y-1">
-        <div>
-          Last sync: <span className="text-zinc-700 tabular-nums">{lastSync}</span>
+            aria-label={connector.enabled ? "Disable" : "Enable"}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                connector.enabled ? "translate-x-4" : ""
+              }`}
+            />
+          </button>
         </div>
-        {connector.lastError && (
-          <div className="text-red-600 text-xs">Error: {connector.lastError}</div>
-        )}
+
+        <div className="text-xs text-zinc-500 space-y-1">
+          <div>
+            Last sync: <span className="text-zinc-700 tabular-nums">{lastSync}</span>
+          </div>
+          {connector.lastError && (
+            <div className="text-red-600 text-xs break-words">
+              Error: {connector.lastError}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={onSync}
+            disabled={syncing}
+            className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 disabled:opacity-50 transition"
+          >
+            {syncing ? "Syncing…" : "Sync now"}
+          </button>
+          {info && info.configSchema.length > 0 && (
+            <button
+              onClick={onToggleExpand}
+              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+            >
+              {expanded ? "Hide settings" : "Configure"}
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="flex gap-2">
+      {expanded && info && (
+        <div className="border-t border-zinc-200 bg-zinc-50/60 p-4 space-y-4">
+          {info.setupInstructions && (
+            <div className="prose-mm text-xs text-zinc-700 max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {info.setupInstructions}
+              </ReactMarkdown>
+            </div>
+          )}
+          <ConfigForm
+            schema={info.configSchema}
+            initial={connector.config}
+            onSave={onSaveConfig}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConfigForm({
+  schema,
+  initial,
+  onSave,
+}: {
+  schema: ConfigField[];
+  initial: Record<string, unknown>;
+  onSave: (config: Record<string, unknown>) => void;
+}) {
+  const [values, setValues] = useState<Record<string, unknown>>(() => ({
+    ...initial,
+  }));
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const setValue = (key: string, value: unknown) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(values);
+      setSavedAt(Date.now());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {schema.map((field) => (
+        <div key={field.key} className="space-y-1">
+          <label className="block text-[11px] font-medium text-zinc-700">
+            {field.label}
+            {field.required && <span className="text-red-500 ml-0.5">*</span>}
+          </label>
+          {field.description && (
+            <p className="text-[10px] text-zinc-500 leading-snug">
+              {field.description}
+            </p>
+          )}
+          {field.type === "boolean" ? (
+            <button
+              type="button"
+              onClick={() => setValue(field.key, !values[field.key])}
+              className={`relative w-9 h-5 rounded-full transition-colors ${
+                values[field.key] ? "bg-zinc-900" : "bg-zinc-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                  values[field.key] ? "translate-x-4" : ""
+                }`}
+              />
+            </button>
+          ) : (
+            <input
+              type={
+                field.type === "password"
+                  ? "password"
+                  : field.type === "number"
+                    ? "number"
+                    : "text"
+              }
+              value={String(values[field.key] ?? "")}
+              placeholder={field.placeholder}
+              onChange={(e) => {
+                const v =
+                  field.type === "number"
+                    ? Number(e.target.value)
+                    : e.target.value;
+                setValue(field.key, v);
+              }}
+              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-zinc-200 bg-white text-zinc-900 focus:outline-none focus:border-zinc-400 transition"
+            />
+          )}
+        </div>
+      ))}
+
+      <div className="flex items-center gap-3 pt-1">
         <button
-          onClick={onSync}
-          disabled={syncing}
-          className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 disabled:opacity-50 transition"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 transition"
         >
-          {syncing ? "Syncing…" : "Sync now"}
+          {saving ? "Saving…" : "Save settings"}
         </button>
+        {savedAt && Date.now() - savedAt < 3000 && (
+          <span className="text-[10px] text-emerald-600">Saved</span>
+        )}
       </div>
     </div>
   );
