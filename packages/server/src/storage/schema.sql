@@ -75,6 +75,54 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at  TEXT NOT NULL
 );
 
+-- Source memories: original captured items from connectors
+-- (Screenpipe Memories, future: Gmail messages, Granola transcripts, etc.)
+CREATE TABLE IF NOT EXISTS memory_sources (
+  id              TEXT PRIMARY KEY,
+  external_source TEXT NOT NULL,             -- "screenpipe", "gmail", etc.
+  external_id     TEXT NOT NULL,             -- the upstream id
+  content         TEXT NOT NULL,             -- original text
+  source_label    TEXT NOT NULL,             -- e.g. "screenpipe / digital-clone"
+  tags            TEXT NOT NULL DEFAULT '[]',
+  importance      REAL,
+  captured_at     TEXT NOT NULL,             -- when the upstream system captured it
+  ingested_at     TEXT NOT NULL              -- when we processed it
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_sources_external
+  ON memory_sources(external_source, external_id);
+
+-- Which source memories produced/touched a page
+CREATE TABLE IF NOT EXISTS page_sources (
+  page_id    TEXT NOT NULL,
+  source_id  TEXT NOT NULL,
+  action     TEXT NOT NULL,                  -- "created" or "updated"
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (page_id, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_sources_source ON page_sources(source_id);
+
+-- Which source memories produced/touched an association
+CREATE TABLE IF NOT EXISTS association_sources (
+  association_id TEXT NOT NULL,
+  source_id      TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  PRIMARY KEY (association_id, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_assoc_sources_source ON association_sources(source_id);
+
+-- Cached synthesized profile for each page
+CREATE TABLE IF NOT EXISTS page_profiles (
+  page_id       TEXT PRIMARY KEY,
+  profile_md    TEXT NOT NULL,
+  source_count  INTEGER NOT NULL DEFAULT 0,
+  generated_at  TEXT NOT NULL,
+  generated_by  TEXT NOT NULL,
+  stale         INTEGER NOT NULL DEFAULT 0
+);
+
 -- Connectors: external data sources
 CREATE TABLE IF NOT EXISTS connectors (
   id              TEXT PRIMARY KEY,

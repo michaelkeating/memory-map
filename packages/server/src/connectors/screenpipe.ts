@@ -1,4 +1,4 @@
-import type { Connector, SyncResult } from "./types.js";
+import type { Connector, SyncResult, IngestFn } from "./types.js";
 import type { ConnectorRecord } from "@memory-map/shared";
 
 interface ScreenpipeMemory {
@@ -45,10 +45,7 @@ export class ScreenpipeConnector implements Connector {
   readonly defaultConfig = DEFAULT_CONFIG as unknown as Record<string, unknown>;
   readonly defaultPollSeconds = DEFAULT_CONFIG.pollSeconds;
 
-  async sync(
-    record: ConnectorRecord,
-    ingestFn: (content: string, sourceLabel: string) => Promise<void>
-  ): Promise<SyncResult> {
+  async sync(record: ConnectorRecord, ingestFn: IngestFn): Promise<SyncResult> {
     const config = { ...DEFAULT_CONFIG, ...(record.config as Partial<ScreenpipeConfig>) };
     const state = record.state as ScreenpipeState;
 
@@ -97,7 +94,15 @@ export class ScreenpipeConnector implements Connector {
     for (const memory of filtered) {
       const blob = this.formatMemoryForLLM(memory);
       try {
-        await ingestFn(blob, `Screenpipe Memory (${memory.source}, importance: ${memory.importance})`);
+        await ingestFn({
+          externalSource: "screenpipe",
+          externalId: String(memory.id),
+          content: blob,
+          sourceLabel: `Screenpipe / ${memory.source}`,
+          capturedAt: memory.created_at,
+          importance: memory.importance,
+          tags: memory.tags,
+        });
         ingested++;
         if (memory.id > highestId) highestId = memory.id;
       } catch (err) {

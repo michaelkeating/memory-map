@@ -21,6 +21,9 @@ import { registerConnectorRoutes } from "./api/connectors.js";
 import { ConnectorStore } from "./connectors/store.js";
 import { ConnectorRunner } from "./connectors/runner.js";
 import { ScreenpipeConnector } from "./connectors/screenpipe.js";
+import { SourceStore } from "./storage/source-store.js";
+import { ProfileService } from "./llm/profile-service.js";
+import { registerProfileRoutes } from "./api/profiles.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +36,7 @@ async function main() {
   const pageStore = new PageStore(db);
   const associationStore = new AssociationStore(db, pageStore);
   const chatStore = new ChatStore(db);
+  const sourceStore = new SourceStore(db);
 
   // Rebuild index from disk
   pageStore.rebuildIndex();
@@ -55,7 +59,23 @@ async function main() {
 
   // Initialize LLM
   const llm = new ClaudeProvider("claude-sonnet-4-20250514", config.anthropicApiKey);
-  const organizer = new AutoOrganizer(llm, pageStore, associationStore, linkIndex, wsHub);
+  const profileService = new ProfileService(
+    db,
+    llm,
+    pageStore,
+    associationStore,
+    sourceStore,
+    linkIndex
+  );
+  const organizer = new AutoOrganizer(
+    llm,
+    pageStore,
+    associationStore,
+    linkIndex,
+    wsHub,
+    sourceStore,
+    profileService
+  );
 
   // Initialize connectors
   const connectorStore = new ConnectorStore(db);
@@ -85,6 +105,7 @@ async function main() {
   registerPageRoutes(app, pageStore, associationStore, linkIndex);
   registerGraphRoutes(app, graphService);
   registerConnectorRoutes(app, connectorStore, connectorRunner);
+  registerProfileRoutes(app, sourceStore, profileService);
 
   // Health check
   app.get("/api/health", async () => ({

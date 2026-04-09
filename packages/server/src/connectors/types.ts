@@ -1,4 +1,6 @@
-import type { ConnectorRecord } from "@memory-map/shared";
+import type { ConnectorRecord, IngestionSource } from "@memory-map/shared";
+
+export type IngestFn = (source: IngestionSource) => Promise<void>;
 
 /**
  * Result of a single sync run.
@@ -37,8 +39,5 @@ export interface Connector {
    * 3. Call ingestFn with the formatted content
    * 4. Return updated state
    */
-  sync(
-    record: ConnectorRecord,
-    ingestFn: (content: string, sourceLabel: string) => Promise<void>
-  ): Promise<SyncResult>;
+  sync(record: ConnectorRecord, ingestFn: IngestFn): Promise<SyncResult>;
 }

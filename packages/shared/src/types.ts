@@ -103,6 +103,44 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
+// === Source memories (provenance) ===
+export interface MemorySource {
+  id: string;
+  externalSource: string;   // "screenpipe", "gmail", etc.
+  externalId: string;
+  content: string;
+  sourceLabel: string;
+  tags: string[];
+  importance: number | null;
+  capturedAt: string;
+  ingestedAt: string;
+}
+
+/**
+ * Structured payload that connectors pass to the auto-organizer
+ * for ingestion. Lets us record provenance for every page and
+ * association created.
+ */
+export interface IngestionSource {
+  externalSource: string;
+  externalId: string;
+  content: string;
+  sourceLabel: string;
+  capturedAt: string;
+  importance?: number;
+  tags?: string[];
+}
+
+// === Page profile (synthesized) ===
+export interface PageProfile {
+  pageId: string;
+  profileMd: string;
+  sourceCount: number;
+  generatedAt: string;
+  generatedBy: string;
+  stale: boolean;
+}
+
 // === Connectors ===
 export interface ConnectorRecord {
   id: string;

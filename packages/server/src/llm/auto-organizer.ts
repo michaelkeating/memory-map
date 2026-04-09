@@ -2,12 +2,15 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type {
   OrganizerOperations,
   Page,
+  IngestionSource,
 } from "@memory-map/shared";
 import type { LLMProvider } from "./provider.js";
 import type { PageStore } from "../storage/page-store.js";
 import type { AssociationStore } from "../storage/association-store.js";
 import type { LinkIndex } from "../engine/link-index.js";
 import type { WebSocketHub } from "../ws/hub.js";
+import type { SourceStore } from "../storage/source-store.js";
+import type { ProfileService } from "./profile-service.js";
 
 const INGEST_SYSTEM_PROMPT = `You are the intelligence layer of Memory Map, a personal knowledge graph.
 
@@ -185,16 +188,16 @@ export class AutoOrganizer {
     private pageStore: PageStore,
     private associationStore: AssociationStore,
     private linkIndex: LinkIndex,
-    private wsHub: WebSocketHub
+    private wsHub: WebSocketHub,
+    private sourceStore: SourceStore,
+    private profileService: ProfileService
   ) {}
 
   async process(
     userMessage: string,
     chatHistory: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<{ response: string; operations: OrganizerOperations }> {
-    // Build context from knowledge graph
     const context = this.buildContext(userMessage);
-
     const system = SYSTEM_PROMPT + "\n\n" + context;
 
     const result = await this.llm.chat({
@@ -204,26 +207,26 @@ export class AutoOrganizer {
       maxTokens: 4096,
     });
 
-    // Parse tool use
     const operations = this.parseOperations(result.toolUse);
-
-    // Execute operations
-    await this.executeOperations(operations);
-
+    await this.executeOperations(operations, null);
     return { response: result.text, operations };
   }
 
   /**
-   * Ingest content from a connector (Screenpipe, Gmail, etc.).
-   * Uses a different system prompt that frames the content as
-   * passive observation rather than direct user input.
+   * Ingest content from a connector (Screenpipe, Gmail, etc.) with full
+   * provenance tracking. Records the source memory and tags every page
+   * and association produced with the source ID so the user can later
+   * see exactly where each piece of knowledge came from.
    */
-  async ingest(content: string, sourceLabel: string): Promise<OrganizerOperations> {
-    const context = this.buildContext(content.slice(0, 2000));
+  async ingest(input: IngestionSource): Promise<OrganizerOperations> {
+    // Record the source memory first so we have an ID to tag operations with
+    const source = this.sourceStore.recordSource(input);
+
+    const context = this.buildContext(input.content.slice(0, 2000));
 
     const system = `${INGEST_SYSTEM_PROMPT}
 
-SOURCE: ${sourceLabel}
+SOURCE: ${input.sourceLabel}
 
 ${context}`;
 
@@ -232,7 +235,7 @@ ${context}`;
       messages: [
         {
           role: "user",
-          content: `Here is captured content from ${sourceLabel}. Extract anything meaningful and organize it into the knowledge graph. Skip routine/trivial content. Be selective — only create pages for things that genuinely matter.\n\n---\n\n${content}`,
+          content: `Here is captured content from ${input.sourceLabel}. Extract anything meaningful and organize it into the knowledge graph. Skip routine/trivial content. Be selective — only create pages for things that genuinely matter.\n\n---\n\n${input.content}`,
         },
       ],
       tools: [ORGANIZE_TOOL],
@@ -240,7 +243,7 @@ ${context}`;
     });
 
     const operations = this.parseOperations(result.toolUse);
-    await this.executeOperations(operations);
+    await this.executeOperations(operations, source.id);
     return operations;
   }
 
@@ -334,12 +337,21 @@ ${context}`;
     };
   }
 
-  private async executeOperations(ops: OrganizerOperations): Promise<void> {
+  private async executeOperations(
+    ops: OrganizerOperations,
+    sourceId: string | null
+  ): Promise<void> {
+    const touchedPageIds = new Set<string>();
+
     // Create pages first (so associations can reference them)
     for (const op of ops.createPages) {
       const page = this.pageStore.create(op);
       this.linkIndex.updateForPage(page.frontmatter.id, page.links);
       this.wsHub.broadcast({ type: "page:created", page });
+      if (sourceId) {
+        this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "created");
+      }
+      touchedPageIds.add(page.frontmatter.id);
     }
 
     for (const op of ops.updatePages) {
@@ -347,6 +359,10 @@ ${context}`;
       if (page) {
         this.linkIndex.updateForPage(page.frontmatter.id, page.links);
         this.wsHub.broadcast({ type: "page:updated", page });
+        if (sourceId) {
+          this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "updated");
+        }
+        touchedPageIds.add(page.frontmatter.id);
       }
     }
 
@@ -354,6 +370,11 @@ ${context}`;
       const assoc = this.associationStore.create(op, this.llm.modelId);
       if (assoc) {
         this.wsHub.broadcast({ type: "association:created", association: assoc });
+        if (sourceId) {
+          this.sourceStore.linkAssociationToSource(assoc.id, sourceId);
+        }
+        touchedPageIds.add(assoc.sourceId);
+        touchedPageIds.add(assoc.targetId);
       }
     }
 
@@ -361,7 +382,17 @@ ${context}`;
       const assoc = this.associationStore.update(op, this.llm.modelId);
       if (assoc) {
         this.wsHub.broadcast({ type: "association:updated", association: assoc });
+        if (sourceId) {
+          this.sourceStore.linkAssociationToSource(assoc.id, sourceId);
+        }
+        touchedPageIds.add(assoc.sourceId);
+        touchedPageIds.add(assoc.targetId);
       }
+    }
+
+    // Mark profiles stale for any page touched by this batch
+    for (const pageId of touchedPageIds) {
+      this.profileService.markStale(pageId);
     }
   }
 }

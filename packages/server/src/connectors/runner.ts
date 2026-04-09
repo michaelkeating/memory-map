@@ -82,8 +82,8 @@ export class ConnectorRunner {
     sched.running = true;
     try {
       console.log(`[connector:${type}] syncing...`);
-      const result = await sched.connector.sync(record, async (content, sourceLabel) => {
-        await this.organizer.ingest(content, sourceLabel);
+      const result = await sched.connector.sync(record, async (source) => {
+        await this.organizer.ingest(source);
       });
       this.store.recordSync(record.id, result.newState, null);
       console.log(`[connector:${type}] sync complete: ${result.message}`);
