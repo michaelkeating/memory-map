@@ -17,6 +17,9 @@ import {
   rgba,
   hashSeed,
   drawOrthogonalPath,
+  drawSubwayPath,
+  drawStarfield,
+  pickFromPalette,
   type GraphStyle,
   type RGB,
 } from "./styles.js";
@@ -187,6 +190,21 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       ctx.fillStyle = s.background;
       ctx.fillRect(0, 0, w / dpr, h / dpr);
 
+      // Starfield (drawn in screen space, before pan/zoom transform)
+      if (s.engine === "starchart" && s.starchart) {
+        const vp0 = viewportRef.current;
+        drawStarfield(
+          ctx,
+          w / dpr,
+          h / dpr,
+          vp0.x,
+          vp0.y,
+          120,
+          s.starchart.bgStarDensity,
+          s.starchart.bgStarColors
+        );
+      }
+
       // Background grid
       if (s.grid) {
         const vp = viewportRef.current;
@@ -269,6 +287,19 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           dash = s.edge.semantic.dash;
         }
 
+        // Per-edge color override for subway (each "line" gets its own palette color)
+        if (s.engine === "subway" && s.subway) {
+          const lineColor = pickFromPalette(
+            s.subway.palette,
+            hashSeed(source.id, target.id)
+          );
+          strokeColor = rgba(lineColor, dimFactor);
+          strokeWidth =
+            link.type === "explicit"
+              ? s.subway.lineWidth
+              : s.subway.lineWidth * 0.7;
+        }
+
         if (s.engine === "sketchy" && rc) {
           rc.line(source.x, source.y!, target.x, target.y!, {
             stroke: strokeColor,
@@ -302,6 +333,34 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           ctx.setLineDash([]);
           ctx.lineCap = "butt";
           ctx.lineJoin = "miter";
+        } else if (s.engine === "subway") {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.setLineDash([]);
+          drawSubwayPath(
+            ctx,
+            source.x,
+            source.y!,
+            target.x,
+            target.y!,
+            s.subway?.cornerRadius ?? 14,
+            hashSeed(source.id, target.id, link.type)
+          );
+          ctx.lineCap = "butt";
+          ctx.lineJoin = "miter";
+        } else if (s.engine === "starchart") {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.lineCap = "round";
+          ctx.setLineDash(dash);
+          ctx.beginPath();
+          ctx.moveTo(source.x, source.y!);
+          ctx.lineTo(target.x, target.y!);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.lineCap = "butt";
         } else {
           ctx.strokeStyle = strokeColor;
           ctx.lineWidth = strokeWidth;
@@ -365,15 +424,60 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           ctx.fillStyle = fill;
           ctx.fill();
           ctx.shadowBlur = 0;
-          // Outer ring (like a solder pad)
           ctx.strokeStyle = stroke;
           ctx.lineWidth = bw;
           ctx.stroke();
-          // Inner dark dot for depth
           ctx.beginPath();
           ctx.arc(node.x, node.y!, radius * 0.35, 0, 2 * Math.PI);
           ctx.fillStyle = `rgba(10, 14, 26, ${0.6 * opacity})`;
           ctx.fill();
+        } else if (s.engine === "subway" && s.subway) {
+          // White-filled station with thick black border
+          const stationFill = rgba(s.subway.stationFill, opacity);
+          const stationStroke = rgba(s.subway.stationStroke, opacity);
+          ctx.beginPath();
+          ctx.arc(node.x, node.y!, radius, 0, 2 * Math.PI);
+          ctx.fillStyle = stationFill;
+          ctx.fill();
+          ctx.strokeStyle = stationStroke;
+          ctx.lineWidth = isPinned ? bw + 1.5 : bw;
+          ctx.stroke();
+        } else if (s.engine === "starchart" && s.starchart) {
+          // Star: bright center with strong glow
+          const starColor = pickFromPalette(s.starchart.starColors, hashSeed(node.id));
+          // Outer glow
+          ctx.shadowColor = rgba(starColor, opacity);
+          ctx.shadowBlur = s.starchart.glow * (isHovered ? 1.8 : 1);
+          ctx.beginPath();
+          ctx.arc(node.x, node.y!, radius * 0.6, 0, 2 * Math.PI);
+          ctx.fillStyle = rgba(starColor, opacity);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          // Bright core
+          ctx.beginPath();
+          ctx.arc(node.x, node.y!, radius * 0.3, 0, 2 * Math.PI);
+          ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+          ctx.fill();
+          // Cross diffraction spike for prominent (highly connected) nodes
+          if (node.linkCount > 2) {
+            ctx.strokeStyle = rgba(starColor, 0.45 * opacity);
+            ctx.lineWidth = 0.8;
+            const spike = radius * 2.2;
+            ctx.beginPath();
+            ctx.moveTo(node.x - spike, node.y!);
+            ctx.lineTo(node.x + spike, node.y!);
+            ctx.moveTo(node.x, node.y! - spike);
+            ctx.lineTo(node.x, node.y! + spike);
+            ctx.stroke();
+          }
+          // Pinned ring
+          if (isPinned) {
+            ctx.strokeStyle = rgba(s.node.pinnedBorderColor, opacity);
+            ctx.lineWidth = bw;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y!, radius * 1.4, 0, 2 * Math.PI);
+            ctx.stroke();
+          }
         } else {
           ctx.beginPath();
           ctx.arc(node.x, node.y!, radius, 0, 2 * Math.PI);

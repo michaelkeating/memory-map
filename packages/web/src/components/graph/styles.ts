@@ -66,7 +66,7 @@ export interface GraphStyle {
   };
 
   // Rendering engine — controls HOW shapes get drawn
-  engine: "clean" | "sketchy" | "circuit";
+  engine: "clean" | "sketchy" | "circuit" | "subway" | "starchart";
 
   // Engine-specific tuning (optional)
   sketchy?: {
@@ -83,6 +83,22 @@ export interface GraphStyle {
     glow: number;            // glow blur amount, 0 to disable
     traceColor: RGB;         // override edge color (used for glow)
     dotGrid: boolean;        // use dot grid instead of line grid
+  };
+
+  subway?: {
+    palette: RGB[];          // line colors, picked per-edge by hash
+    lineWidth: number;       // base line thickness
+    cornerRadius: number;    // 45° corner radius
+    stationFill: RGB;        // node fill color
+    stationStroke: RGB;      // node border color
+  };
+
+  starchart?: {
+    bgStarDensity: number;   // approximate stars per 1000px²
+    bgStarColors: RGB[];     // palette for background stars
+    constellationOpacity: number;
+    glow: number;
+    starColors: RGB[];       // palette for foreground (graph node) stars
   };
 }
 
@@ -394,9 +410,196 @@ const CIRCUIT: GraphStyle = {
   },
 };
 
+// ─── Subway (NYC) ─────────────────────────────────────────────
+
+const SUBWAY: GraphStyle = {
+  id: "subway",
+  name: "Subway",
+
+  background: "#f5efe0",  // warm cream like the Vignelli map paper
+
+  grid: null,
+
+  edge: {
+    explicit: {
+      color: { r: 0, g: 0, b: 0 },  // overridden per edge
+      opacity: 1,
+      width: 6,
+      dash: [],
+    },
+    semantic: {
+      color: { r: 0, g: 0, b: 0 },
+      opacityScale: 1,
+      widthBase: 4,
+      widthScale: 2,
+      dash: [],
+    },
+    dimOpacity: 0.18,
+  },
+
+  node: {
+    colors: {
+      person: { r: 30, g: 30, b: 30 },
+      project: { r: 30, g: 30, b: 30 },
+      company: { r: 30, g: 30, b: 30 },
+      default: { r: 30, g: 30, b: 30 },
+    },
+    borderColor: { r: 30, g: 30, b: 30 },
+    borderWidth: 3,
+    pinnedBorderColor: { r: 30, g: 30, b: 30 },
+    pinnedBorderWidth: 4.5,
+    dimOpacity: 0.25,
+    freshGlow: { r: 251, g: 191, b: 36 },
+    freshFill: { r: 251, g: 191, b: 36 },
+  },
+
+  label: {
+    font: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+    fontWeight: "700",
+    hoverFontWeight: "700",
+    size: 11,
+    hoverSize: 13,
+    color: { r: 30, g: 30, b: 30 },
+    bgColor: "rgba(245, 239, 224, 0.95)",
+    bgOpacity: 0.95,
+  },
+
+  tooltip: {
+    bg: "bg-[#f5efe0]/95 backdrop-blur",
+    border: "border border-zinc-800",
+    text: "text-zinc-900",
+    muted: "text-zinc-600",
+    shadow: "shadow-md",
+  },
+
+  controls: {
+    bg: "bg-[#f5efe0]/95 backdrop-blur",
+    border: "border-zinc-800",
+    text: "text-zinc-900",
+    hoverBg: "hover:bg-[#ebe2c8]",
+    hoverBorder: "hover:border-zinc-900",
+  },
+
+  engine: "subway",
+  subway: {
+    // MTA-inspired palette
+    palette: [
+      { r: 238, g: 53, b: 36 },    // 1/2/3 red
+      { r: 0, g: 147, b: 60 },     // 4/5/6 green
+      { r: 185, g: 51, b: 173 },   // 7 purple
+      { r: 0, g: 57, b: 166 },     // A/C/E blue
+      { r: 255, g: 99, b: 25 },    // B/D/F/M orange
+      { r: 252, g: 204, b: 10 },   // N/Q/R/W yellow
+      { r: 167, g: 169, b: 172 },  // L gray
+      { r: 153, g: 99, b: 54 },    // J/Z brown
+      { r: 108, g: 190, b: 69 },   // G lime
+    ],
+    lineWidth: 6,
+    cornerRadius: 18,
+    stationFill: { r: 255, g: 255, b: 255 },
+    stationStroke: { r: 30, g: 30, b: 30 },
+  },
+};
+
+// ─── Star Chart ───────────────────────────────────────────────
+
+const STARCHART: GraphStyle = {
+  id: "starchart",
+  name: "Star Chart",
+
+  background: "#06091a",  // deep space
+
+  grid: null,
+
+  edge: {
+    explicit: {
+      color: { r: 200, g: 220, b: 255 },
+      opacity: 0.55,
+      width: 0.8,
+      dash: [],
+    },
+    semantic: {
+      color: { r: 200, g: 220, b: 255 },
+      opacityScale: 0.4,
+      widthBase: 0.6,
+      widthScale: 0.8,
+      dash: [2, 5],
+    },
+    dimOpacity: 0.1,
+  },
+
+  node: {
+    colors: {
+      person: { r: 255, g: 220, b: 200 },   // warm white
+      project: { r: 200, g: 230, b: 255 },  // cool white
+      company: { r: 255, g: 240, b: 180 },  // pale yellow
+      default: { r: 240, g: 240, b: 255 },  // pure white
+    },
+    borderColor: { r: 255, g: 255, b: 255 },
+    borderWidth: 0,
+    pinnedBorderColor: { r: 200, g: 220, b: 255 },
+    pinnedBorderWidth: 2,
+    dimOpacity: 0.3,
+    freshGlow: { r: 255, g: 240, b: 200 },
+    freshFill: { r: 255, g: 240, b: 200 },
+  },
+
+  label: {
+    font: "'Cormorant Garamond', 'Iowan Old Style', Georgia, serif",
+    fontWeight: "400",
+    hoverFontWeight: "600",
+    size: 14,
+    hoverSize: 16,
+    color: { r: 220, g: 230, b: 255 },
+    bgColor: "rgba(6, 9, 26, 0.85)",
+    bgOpacity: 0.85,
+  },
+
+  tooltip: {
+    bg: "bg-[#06091a]/95 backdrop-blur",
+    border: "border border-indigo-900/50",
+    text: "text-indigo-100",
+    muted: "text-indigo-400/60",
+    shadow: "shadow-[0_0_24px_rgba(99,102,241,0.2)]",
+  },
+
+  controls: {
+    bg: "bg-[#06091a]/90 backdrop-blur",
+    border: "border-indigo-900/50",
+    text: "text-indigo-200",
+    hoverBg: "hover:bg-[#0d1130]",
+    hoverBorder: "hover:border-indigo-700",
+  },
+
+  engine: "starchart",
+  starchart: {
+    bgStarDensity: 0.0008,
+    bgStarColors: [
+      { r: 255, g: 255, b: 255 },
+      { r: 220, g: 230, b: 255 },
+      { r: 255, g: 240, b: 220 },
+      { r: 200, g: 220, b: 255 },
+    ],
+    constellationOpacity: 0.55,
+    glow: 8,
+    starColors: [
+      { r: 255, g: 255, b: 255 },
+      { r: 220, g: 230, b: 255 },
+      { r: 255, g: 240, b: 200 },
+    ],
+  },
+};
+
 // ─── Exports ──────────────────────────────────────────────────
 
-export const GRAPH_STYLES: GraphStyle[] = [CLEAN, CHALKBOARD, WHITEBOARD, CIRCUIT];
+export const GRAPH_STYLES: GraphStyle[] = [
+  CLEAN,
+  CHALKBOARD,
+  WHITEBOARD,
+  CIRCUIT,
+  SUBWAY,
+  STARCHART,
+];
 
 export function getStyleById(id: string): GraphStyle {
   return GRAPH_STYLES.find((s) => s.id === id) ?? CLEAN;
@@ -420,6 +623,110 @@ export function hashSeed(...parts: string[]): number {
     h = (h * 33) ^ str.charCodeAt(i);
   }
   return Math.abs(h) % 2147483647;
+}
+
+/**
+ * Draw a subway-style path: short straight runs joined by a 45° diagonal.
+ * The Vignelli NYC subway aesthetic — never an arbitrary angle.
+ * The elbow direction (HV vs VH) is picked by seed.
+ */
+export function drawSubwayPath(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  cornerRadius: number,
+  seed: number
+) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+
+  if (adx < 2 || ady < 2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    return;
+  }
+
+  const diag = Math.min(adx, ady);
+  const sx = Math.sign(dx);
+  const sy = Math.sign(dy);
+  const horizontalFirst = (seed & 1) === 0;
+
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  if (horizontalFirst) {
+    const breakX = x2 - sx * diag;
+    ctx.lineTo(breakX, y1);
+    ctx.lineTo(x2, y1 + sy * diag);
+    ctx.lineTo(x2, y2);
+  } else {
+    const breakY = y2 - sy * diag;
+    ctx.lineTo(x1, breakY);
+    ctx.lineTo(x1 + sx * diag, y2);
+    ctx.lineTo(x2, y2);
+  }
+  void cornerRadius;
+  ctx.stroke();
+}
+
+/** Pick a stable item from a palette by seed */
+export function pickFromPalette<T>(palette: T[], seed: number): T {
+  return palette[seed % palette.length];
+}
+
+/**
+ * Deterministic background starfield rendered in SCREEN coordinates.
+ * Stars are placed in a grid of cells, position+brightness seeded by
+ * the cell index so they don't shift around with pan/zoom.
+ */
+export function drawStarfield(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  panX: number,
+  panY: number,
+  cellSize: number,
+  density: number,
+  colors: RGB[]
+) {
+  const starsPerCell = Math.max(1, Math.round(density * cellSize * cellSize));
+  // World coords visible on screen — use pan offset (no zoom for bg stars)
+  const minX = Math.floor(-panX / cellSize) - 1;
+  const minY = Math.floor(-panY / cellSize) - 1;
+  const maxX = Math.ceil((-panX + width) / cellSize) + 1;
+  const maxY = Math.ceil((-panY + height) / cellSize) + 1;
+
+  for (let cy = minY; cy <= maxY; cy++) {
+    for (let cx = minX; cx <= maxX; cx++) {
+      let h = (cx * 374761393) ^ (cy * 668265263);
+      h = ((h << 13) ^ h) >>> 0;
+      const baseSeed = (h * 1274126177) >>> 0;
+
+      for (let i = 0; i < starsPerCell; i++) {
+        const s1 = ((baseSeed + i * 2654435761) >>> 0) / 0xffffffff;
+        const s2 = ((baseSeed + i * 1597463007) >>> 0) / 0xffffffff;
+        const s3 = ((baseSeed + i * 2246822519) >>> 0) / 0xffffffff;
+        const s4 = ((baseSeed + i * 3266489917) >>> 0) / 0xffffffff;
+
+        const px = cx * cellSize + s1 * cellSize + panX;
+        const py = cy * cellSize + s2 * cellSize + panY;
+        if (px < 0 || px > width || py < 0 || py > height) continue;
+
+        const brightness = 0.3 + s3 * 0.7;
+        const radius = 0.4 + s4 * 1.2;
+        const color = colors[Math.floor(s3 * colors.length) % colors.length];
+        ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${brightness})`;
+        ctx.beginPath();
+        ctx.arc(px, py, radius, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+  }
 }
 
 /**
