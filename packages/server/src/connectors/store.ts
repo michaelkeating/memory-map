@@ -96,6 +96,16 @@ export class ConnectorStore {
       )
       .run(JSON.stringify(state), now, error, now, id);
   }
+
+  /** Update connector state without touching last_sync_at or last_error */
+  updateState(id: string, state: Record<string, unknown>): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        "UPDATE connectors SET state = ?, updated_at = ? WHERE id = ?"
+      )
+      .run(JSON.stringify(state), now, id);
+  }
 }
 
 function rowToRecord(row: any): ConnectorRecord {

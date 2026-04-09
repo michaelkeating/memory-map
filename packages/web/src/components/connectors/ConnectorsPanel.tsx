@@ -228,7 +228,65 @@ function ConnectorCard({
             initial={connector.config}
             onSave={onSaveConfig}
           />
+          {connector.type === "google-drive" && (
+            <GoogleDriveConnect connector={connector} />
+          )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function GoogleDriveConnect({ connector }: { connector: ConnectorRecord }) {
+  const isConnected = Boolean(
+    (connector.state as Record<string, unknown>)?.refreshToken
+  );
+  const cfg = connector.config as { clientId?: string; clientSecret?: string };
+  const canConnect = Boolean(cfg.clientId && cfg.clientSecret);
+
+  const handleConnect = () => {
+    // Open the OAuth start URL in a new tab. The server redirects to Google,
+    // Google redirects back to the server's callback, and the result page
+    // self-closes.
+    window.open("/api/oauth/start/google-drive", "_blank");
+  };
+
+  const handleDisconnect = async () => {
+    await fetch("/api/oauth/disconnect/google-drive", { method: "POST" });
+    window.location.reload();
+  };
+
+  return (
+    <div className="rounded-md border border-zinc-200 bg-white p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-zinc-700">Google account</p>
+          <p className="text-[10px] text-zinc-500 mt-0.5">
+            {isConnected ? "Connected" : "Not connected"}
+          </p>
+        </div>
+        {isConnected ? (
+          <button
+            onClick={handleDisconnect}
+            className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 transition"
+          >
+            Disconnect
+          </button>
+        ) : (
+          <button
+            onClick={handleConnect}
+            disabled={!canConnect}
+            className="text-xs px-3 py-1.5 rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition"
+            title={canConnect ? "" : "Save Client ID and Secret first"}
+          >
+            Connect with Google
+          </button>
+        )}
+      </div>
+      {!canConnect && (
+        <p className="text-[10px] text-amber-700">
+          Save Client ID and Client Secret first, then click Connect.
+        </p>
       )}
     </div>
   );
