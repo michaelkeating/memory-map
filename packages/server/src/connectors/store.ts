@@ -76,8 +76,11 @@ export class ConnectorStore {
 
   updateConfig(id: string, config: Record<string, unknown>): void {
     const now = new Date().toISOString();
+    // Clear last_error too — the previous error may no longer apply
     this.db
-      .prepare("UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?")
+      .prepare(
+        "UPDATE connectors SET config = ?, last_error = NULL, updated_at = ? WHERE id = ?"
+      )
       .run(JSON.stringify(config), now, id);
   }
 
