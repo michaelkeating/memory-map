@@ -224,8 +224,8 @@ const CHALKBOARD: GraphStyle = {
 
   engine: "sketchy",
   sketchy: {
-    roughness: 1.6,
-    bowing: 1.2,
+    roughness: 1.2,
+    bowing: 1,
     fillStyle: "solid",
   },
 };
@@ -302,8 +302,8 @@ const WHITEBOARD: GraphStyle = {
 
   engine: "sketchy",
   sketchy: {
-    roughness: 2,
-    bowing: 1.5,
+    roughness: 1.4,
+    bowing: 1.2,
     fillStyle: "solid",
   },
 };

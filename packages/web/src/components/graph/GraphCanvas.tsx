@@ -262,6 +262,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
             bowing: s.sketchy?.bowing ?? 1,
             seed: hashSeed(source.id, target.id, link.type),
             strokeLineDash: dash.length > 0 ? dash : undefined,
+            // Single sketchy stroke per edge — without this, rough.js
+            // draws every line twice (its default "hand-drawn" effect),
+            // which on connectors just looks like doubled-up parallel lines.
+            disableMultiStroke: true,
           });
         } else {
           ctx.strokeStyle = strokeColor;
