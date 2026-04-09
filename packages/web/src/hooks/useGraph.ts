@@ -12,6 +12,7 @@ interface GraphStore {
   edges: GraphEdge[];
   freshNodes: Set<string>;
   pinnedIds: Set<string>;
+  graphStyleId: string;
 
   setGraph: (g: GraphData) => void;
   addNode: (page: Page) => void;
@@ -21,6 +22,7 @@ interface GraphStore {
   pin: (id: string) => void;
   unpin: (id: string) => void;
   togglePin: (id: string) => void;
+  setGraphStyle: (id: string) => void;
 }
 
 export const useGraphStore = create<GraphStore>((set) => ({
@@ -28,8 +30,11 @@ export const useGraphStore = create<GraphStore>((set) => ({
   edges: [],
   freshNodes: new Set(),
   pinnedIds: new Set(),
+  graphStyleId: "clean",
 
   setGraph: (g) => set({ nodes: g.nodes, edges: g.edges }),
+
+  setGraphStyle: (id) => set({ graphStyleId: id }),
 
   pin: (id) =>
     set((state) => {

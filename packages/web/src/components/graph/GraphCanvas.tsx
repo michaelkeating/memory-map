@@ -9,6 +9,15 @@ import {
   type SimulationLinkDatum,
 } from "d3-force";
 import { useGraphStore } from "../../hooks/useGraph.js";
+import {
+  GRAPH_STYLES,
+  getStyleById,
+  rgba,
+  drawLine,
+  drawCircle,
+  type GraphStyle,
+  type RGB,
+} from "./styles.js";
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
@@ -49,14 +58,20 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const panningRef = useRef<{ startX: number; startY: number } | null>(null);
   const adjacencyRef = useRef<Map<string, Set<string>>>(new Map());
   const pinnedIdsRef = useRef<Set<string>>(new Set());
+  const styleRef = useRef<GraphStyle>(getStyleById("clean"));
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
 
-  const { nodes, edges, freshNodes, pinnedIds, pin } = useGraphStore();
+  const { nodes, edges, freshNodes, pinnedIds, pin, graphStyleId, setGraphStyle } =
+    useGraphStore();
 
-  // Mirror reactive pinnedIds into a ref for the rAF render loop
+  // Mirror reactive state into refs for the rAF render loop
   useEffect(() => {
     pinnedIdsRef.current = pinnedIds;
   }, [pinnedIds]);
+
+  useEffect(() => {
+    styleRef.current = getStyleById(graphStyleId);
+  }, [graphStyleId]);
 
   // Build adjacency map for hover highlighting
   useEffect(() => {
@@ -161,11 +176,33 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       const dpr = devicePixelRatio || 1;
       const w = canvas.width;
       const h = canvas.height;
+      const s = styleRef.current;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
 
-      // Background grid (subtle)
-      drawGrid(ctx, container.clientWidth, container.clientHeight, viewportRef.current);
+      // Background fill
+      ctx.fillStyle = s.background;
+      ctx.fillRect(0, 0, w / dpr, h / dpr);
+
+      // Background grid
+      if (s.grid) {
+        const vp = viewportRef.current;
+        const baseSize = 50;
+        const size = baseSize * vp.scale;
+        const offsetX = vp.x % size;
+        const offsetY = vp.y % size;
+        ctx.strokeStyle = s.grid.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = offsetX; x < w / dpr; x += size) {
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, h / dpr);
+        }
+        for (let y = offsetY; y < h / dpr; y += size) {
+          ctx.moveTo(0, y);
+          ctx.lineTo(w / dpr, y);
+        }
+        ctx.stroke();
+      }
 
       // Apply pan/zoom
       const vp = viewportRef.current;
@@ -195,22 +232,21 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         const isHighlighted =
           !highlightSet ||
           (highlightSet.has(source.id) && highlightSet.has(target.id));
-        const opacity = isHighlighted ? 1 : 0.15;
-
-        ctx.beginPath();
-        ctx.moveTo(source.x, source.y!);
-        ctx.lineTo(target.x, target.y!);
+        const dimFactor = isHighlighted ? 1 : s.edge.dimOpacity;
 
         if (link.type === "explicit") {
-          ctx.strokeStyle = `rgba(24, 24, 27, ${0.55 * opacity})`;
-          ctx.lineWidth = 1.2;
-          ctx.setLineDash([]);
+          ctx.strokeStyle = rgba(s.edge.explicit.color, s.edge.explicit.opacity * dimFactor);
+          ctx.lineWidth = s.edge.explicit.width;
+          ctx.setLineDash(s.edge.explicit.dash);
         } else {
-          ctx.strokeStyle = `rgba(24, 24, 27, ${link.weight * 0.5 * opacity})`;
-          ctx.lineWidth = 0.8 + link.weight * 1.5;
-          ctx.setLineDash([3, 4]);
+          ctx.strokeStyle = rgba(
+            s.edge.semantic.color,
+            link.weight * s.edge.semantic.opacityScale * dimFactor
+          );
+          ctx.lineWidth = s.edge.semantic.widthBase + link.weight * s.edge.semantic.widthScale;
+          ctx.setLineDash(s.edge.semantic.dash);
         }
-        ctx.stroke();
+        drawLine(ctx, source.x, source.y!, target.x, target.y!, s);
         ctx.setLineDash([]);
       }
 
@@ -219,7 +255,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         if (node.x == null) continue;
         const isHovered = node.id === hoveredId;
         const isHighlighted = !highlightSet || highlightSet.has(node.id);
-        const opacity = isHighlighted ? 1 : 0.25;
+        const opacity = isHighlighted ? 1 : s.node.dimOpacity;
+        const isPinned = pinnedIdsRef.current.has(node.id);
 
         const baseRadius = 7 + Math.min(node.linkCount * 1.6, 14);
         const radius = isHovered ? baseRadius * 1.15 : baseRadius;
@@ -228,42 +265,44 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         if (node.isFresh) {
           ctx.beginPath();
           ctx.arc(node.x, node.y!, radius + 8, 0, 2 * Math.PI);
-          ctx.fillStyle = `rgba(251, 191, 36, ${0.35 * opacity})`;
+          ctx.fillStyle = rgba(s.node.freshGlow, 0.35 * opacity);
           ctx.fill();
         }
 
-        ctx.beginPath();
-        ctx.arc(node.x, node.y!, radius, 0, 2 * Math.PI);
-        ctx.fillStyle = node.isFresh
-          ? `rgba(245, 158, 11, ${opacity})`
-          : applyOpacity(getNodeColor(node.tags), opacity);
+        // Node fill
+        const nodeColor = node.isFresh
+          ? s.node.freshFill
+          : getNodeColor(node.tags, s);
+        drawCircle(ctx, node.x, node.y!, radius, s);
+        ctx.fillStyle = rgba(nodeColor, opacity);
         ctx.fill();
-        const isPinned = pinnedIdsRef.current.has(node.id);
-        ctx.strokeStyle = isPinned
-          ? `rgba(24, 24, 27, ${0.95 * opacity})`
-          : `rgba(24, 24, 27, ${0.35 * opacity})`;
-        ctx.lineWidth = isPinned ? 2.5 : 1;
+
+        // Border
+        const bc = isPinned ? s.node.pinnedBorderColor : s.node.borderColor;
+        const bw = isPinned ? s.node.pinnedBorderWidth : s.node.borderWidth;
+        ctx.strokeStyle = rgba(bc, (isPinned ? 0.95 : 0.5) * opacity);
+        ctx.lineWidth = bw;
         ctx.stroke();
 
         // Label
         if (showLabels && (isHighlighted || isHovered)) {
-          const fontSize = isHovered ? 12 : 11;
-          ctx.font = `${isHovered ? "600" : "500"} ${fontSize}px -apple-system, Inter, sans-serif`;
+          const fontSize = isHovered ? s.label.hoverSize : s.label.size;
+          const fontWeight = isHovered ? s.label.hoverFontWeight : s.label.fontWeight;
+          ctx.font = `${fontWeight} ${fontSize}px ${s.label.font}`;
           ctx.textAlign = "center";
 
-          // Background for readability
           const text = node.title;
           const metrics = ctx.measureText(text);
           const padX = 4;
           const labelY = node.y! + radius + 4;
-          ctx.fillStyle = `rgba(255, 255, 255, ${0.95 * opacity})`;
+          ctx.fillStyle = s.label.bgColor;
           ctx.fillRect(
             node.x - metrics.width / 2 - padX,
             labelY,
             metrics.width + padX * 2,
             fontSize + 4
           );
-          ctx.fillStyle = `rgba(24, 24, 27, ${0.95 * opacity})`;
+          ctx.fillStyle = rgba(s.label.color, opacity);
           ctx.fillText(text, node.x, labelY + fontSize);
         }
       }
@@ -435,8 +474,13 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     if (simRef.current) simRef.current.alpha(0.5).restart();
   }, []);
 
+  const activeStyle = getStyleById(graphStyleId);
+  const sc = activeStyle.controls;
+  const st = activeStyle.tooltip;
+  const nc = activeStyle.node.colors;
+
   return (
-    <div ref={containerRef} className="w-full h-full bg-white relative overflow-hidden">
+    <div ref={containerRef} className="w-full h-full relative overflow-hidden">
       <canvas
         ref={canvasRef}
         onMouseMove={handleMouseMove}
@@ -455,52 +499,80 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       />
 
       {nodes.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center text-zinc-400 pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
           <p className="text-sm">Your knowledge graph will appear here</p>
         </div>
       )}
 
       {/* Hover tooltip */}
       {hoveredNode && (
-        <div className="absolute bottom-4 left-4 px-3 py-2 rounded-md bg-white/95 backdrop-blur border border-zinc-200 shadow-sm text-xs text-zinc-900 pointer-events-none max-w-xs">
+        <div
+          className={`absolute bottom-4 left-4 px-3 py-2 rounded-md ${st.bg} ${st.border} ${st.shadow} text-xs ${st.text} pointer-events-none max-w-xs`}
+        >
           <div className="font-medium">{hoveredNode.title}</div>
           {hoveredNode.tags.length > 0 && (
-            <div className="text-zinc-500 text-[10px] mt-0.5">
+            <div className={`${st.muted} text-[10px] mt-0.5`}>
               {hoveredNode.tags.join(" · ")}
             </div>
           )}
-          <div className="text-zinc-400 text-[10px] mt-0.5">
+          <div className={`${st.muted} text-[10px] mt-0.5`}>
             {hoveredNode.linkCount} connection{hoveredNode.linkCount !== 1 ? "s" : ""}
           </div>
         </div>
       )}
 
       {/* Controls */}
-      <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+      <div className="absolute bottom-4 right-4 flex flex-col gap-2 items-end">
+        {/* Style selector */}
+        <select
+          value={graphStyleId}
+          onChange={(e) => setGraphStyle(e.target.value)}
+          className={`px-2.5 py-1.5 rounded-md ${sc.bg} border ${sc.border} text-xs ${sc.text} ${sc.hoverBg} ${sc.hoverBorder} transition cursor-pointer outline-none`}
+        >
+          {GRAPH_STYLES.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
         <button
           onClick={resetView}
-          className="px-2.5 py-1.5 rounded-md bg-white/95 backdrop-blur border border-zinc-200 shadow-sm text-xs text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+          className={`px-2.5 py-1.5 rounded-md ${sc.bg} border ${sc.border} text-xs ${sc.text} ${sc.hoverBg} ${sc.hoverBorder} transition`}
         >
           Reset view
         </button>
       </div>
 
       {/* Legend */}
-      <div className="absolute top-4 left-4 px-3 py-2.5 rounded-md bg-white/95 backdrop-blur border border-zinc-200 shadow-sm text-[10px] text-zinc-600 space-y-1.5 pointer-events-none">
+      <div
+        className={`absolute top-4 left-4 px-3 py-2.5 rounded-md ${sc.bg} border ${sc.border} text-[10px] ${sc.text} space-y-1.5 pointer-events-none`}
+      >
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-violet-400" />
+          <div
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ background: `rgb(${nc.person.r},${nc.person.g},${nc.person.b})` }}
+          />
           <span>Person</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+          <div
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ background: `rgb(${nc.project.r},${nc.project.g},${nc.project.b})` }}
+          />
           <span>Project</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
+          <div
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ background: `rgb(${nc.company.r},${nc.company.g},${nc.company.b})` }}
+          />
           <span>Company</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+          <div
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ background: `rgb(${nc.default.r},${nc.default.g},${nc.default.b})` }}
+          />
           <span>Concept</span>
         </div>
       </div>
@@ -508,39 +580,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   );
 }
 
-function getNodeColor(tags: string[]): { r: number; g: number; b: number } {
-  if (tags.includes("person")) return { r: 167, g: 139, b: 250 }; // violet
-  if (tags.includes("project")) return { r: 52, g: 211, b: 153 }; // emerald
-  if (tags.includes("company") || tags.includes("organization"))
-    return { r: 251, g: 146, b: 60 }; // orange
-  return { r: 96, g: 165, b: 250 }; // blue
-}
-
-function applyOpacity(c: { r: number; g: number; b: number }, opacity: number): string {
-  return `rgba(${c.r}, ${c.g}, ${c.b}, ${opacity})`;
-}
-
-function drawGrid(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  vp: Viewport
-) {
-  const baseSize = 50;
-  const size = baseSize * vp.scale;
-  const offsetX = vp.x % size;
-  const offsetY = vp.y % size;
-
-  ctx.strokeStyle = "rgba(228, 228, 231, 0.6)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let x = offsetX; x < width; x += size) {
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-  }
-  for (let y = offsetY; y < height; y += size) {
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-  }
-  ctx.stroke();
+function getNodeColor(tags: string[], style: GraphStyle): RGB {
+  const c = style.node.colors;
+  if (tags.includes("person")) return c.person;
+  if (tags.includes("project")) return c.project;
+  if (tags.includes("company") || tags.includes("organization")) return c.company;
+  return c.default;
 }
