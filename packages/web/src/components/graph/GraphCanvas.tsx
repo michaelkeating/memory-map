@@ -65,7 +65,9 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const pinnedIdsRef = useRef<Set<string>>(new Set());
   const styleRef = useRef<GraphStyle>(getStyleById("clean"));
   const roughRef = useRef<RoughCanvas | null>(null);
+  const blurLabelsRef = useRef<boolean>(false);
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
+  const [blurLabels, setBlurLabels] = useState<boolean>(false);
 
   const { nodes, edges, freshNodes, pinnedIds, pin, graphStyleId, setGraphStyle } =
     useGraphStore();
@@ -78,6 +80,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   useEffect(() => {
     styleRef.current = getStyleById(graphStyleId);
   }, [graphStyleId]);
+
+  useEffect(() => {
+    blurLabelsRef.current = blurLabels;
+  }, [blurLabels]);
 
   // Build adjacency map for hover highlighting
   useEffect(() => {
@@ -499,6 +505,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           const metrics = ctx.measureText(text);
           const padX = 4;
           const labelY = node.y! + radius + 4;
+
+          // Background is always crisp so there's a visible label placeholder
           ctx.fillStyle = s.label.bgColor;
           ctx.fillRect(
             node.x - metrics.width / 2 - padX,
@@ -506,8 +514,18 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
             metrics.width + padX * 2,
             fontSize + 4
           );
-          ctx.fillStyle = rgba(s.label.color, opacity);
-          ctx.fillText(text, node.x, labelY + fontSize);
+
+          // Text: blur when demo mode is on
+          if (blurLabelsRef.current) {
+            ctx.save();
+            ctx.filter = "blur(3.5px)";
+            ctx.fillStyle = rgba(s.label.color, opacity);
+            ctx.fillText(text, node.x, labelY + fontSize);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = rgba(s.label.color, opacity);
+            ctx.fillText(text, node.x, labelY + fontSize);
+          }
         }
       }
 
@@ -739,6 +757,17 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
             </option>
           ))}
         </select>
+        <button
+          onClick={() => setBlurLabels((v) => !v)}
+          title={blurLabels ? "Show labels" : "Blur labels for demo"}
+          className={`px-2.5 py-1.5 rounded-md border text-xs transition flex items-center gap-1.5 ${
+            blurLabels
+              ? "bg-amber-100/90 border-amber-300 text-amber-900 hover:bg-amber-100"
+              : `${sc.bg} ${sc.border} ${sc.text} ${sc.hoverBg} ${sc.hoverBorder}`
+          }`}
+        >
+          {blurLabels ? "Blur: on" : "Blur: off"}
+        </button>
         <button
           onClick={resetView}
           className={`px-2.5 py-1.5 rounded-md ${sc.bg} border ${sc.border} text-xs ${sc.text} ${sc.hoverBg} ${sc.hoverBorder} transition`}
