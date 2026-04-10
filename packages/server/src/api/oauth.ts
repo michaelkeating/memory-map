@@ -41,7 +41,17 @@ export function registerOAuthRoutes(
     const c = connectorStore.getByType("google-drive");
     if (!c) return reply.code(404).send({ error: "Google Drive connector not registered" });
 
-    const cfg = c.config as { clientId?: string; clientSecret?: string };
+    const cfg = c.config as {
+      authMode?: string;
+      clientId?: string;
+      clientSecret?: string;
+    };
+    if (cfg.authMode === "service_account") {
+      return reply.code(400).send({
+        error:
+          "Auth mode is set to service account — OAuth flow not needed. Just save the service account JSON and click Sync now.",
+      });
+    }
     if (!cfg.clientId || !cfg.clientSecret) {
       return reply.code(400).send({
         error: "Configure Client ID and Client Secret first, then click Connect.",

@@ -145,11 +145,15 @@ export interface PageProfile {
 export interface ConfigField {
   key: string;
   label: string;
-  type: "text" | "password" | "number" | "boolean";
+  type: "text" | "password" | "number" | "boolean" | "select" | "textarea";
   description?: string;
   required?: boolean;
   default?: unknown;
   placeholder?: string;
+  /** For "select" type: dropdown options */
+  options?: Array<{ value: string; label: string }>;
+  /** For "text"/"password"/"textarea": only show this field when another field equals a value */
+  showWhen?: { key: string; equals: unknown };
 }
 
 export interface ConnectorTypeInfo {

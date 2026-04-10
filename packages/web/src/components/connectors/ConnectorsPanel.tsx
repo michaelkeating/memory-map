@@ -238,10 +238,28 @@ function ConnectorCard({
 }
 
 function GoogleDriveConnect({ connector }: { connector: ConnectorRecord }) {
+  const cfg = connector.config as {
+    authMode?: string;
+    clientId?: string;
+    clientSecret?: string;
+    serviceAccountKey?: string;
+  };
+
+  // Service account mode doesn't need OAuth — hide the connect widget
+  if (cfg.authMode === "service_account") {
+    const hasKey = Boolean(cfg.serviceAccountKey && cfg.serviceAccountKey.trim());
+    return (
+      <div className="rounded-md border border-zinc-200 bg-white p-3 text-xs text-zinc-600">
+        {hasKey
+          ? "Service account key saved. Click Sync now to start importing."
+          : "Paste a service account JSON key above and save."}
+      </div>
+    );
+  }
+
   const isConnected = Boolean(
     (connector.state as Record<string, unknown>)?.refreshToken
   );
-  const cfg = connector.config as { clientId?: string; clientSecret?: string };
   const canConnect = Boolean(cfg.clientId && cfg.clientSecret);
 
   const handleConnect = () => {
@@ -321,9 +339,15 @@ function ConfigForm({
     }
   };
 
+  // Filter fields by their showWhen condition
+  const visibleSchema = schema.filter((field) => {
+    if (!field.showWhen) return true;
+    return values[field.showWhen.key] === field.showWhen.equals;
+  });
+
   return (
     <div className="space-y-3">
-      {schema.map((field) => (
+      {visibleSchema.map((field) => (
         <div key={field.key} className="space-y-1">
           <label className="block text-[11px] font-medium text-zinc-700">
             {field.label}
@@ -348,6 +372,26 @@ function ConfigForm({
                 }`}
               />
             </button>
+          ) : field.type === "select" ? (
+            <select
+              value={String(values[field.key] ?? field.default ?? "")}
+              onChange={(e) => setValue(field.key, e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-zinc-200 bg-white text-zinc-900 focus:outline-none focus:border-zinc-400 transition"
+            >
+              {(field.options ?? []).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : field.type === "textarea" ? (
+            <textarea
+              value={String(values[field.key] ?? "")}
+              placeholder={field.placeholder}
+              onChange={(e) => setValue(field.key, e.target.value)}
+              rows={6}
+              className="w-full px-2.5 py-1.5 text-xs font-mono rounded-md border border-zinc-200 bg-white text-zinc-900 focus:outline-none focus:border-zinc-400 transition resize-y"
+            />
           ) : (
             <input
               type={

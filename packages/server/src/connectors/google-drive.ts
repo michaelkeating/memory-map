@@ -1,3 +1,4 @@
+import { createSign } from "node:crypto";
 import type { Connector, SyncResult, IngestFn } from "./types.js";
 import type { ConnectorRecord, ConfigField } from "@memory-map/shared";
 
@@ -36,22 +37,39 @@ interface GoogleDriveState {
 }
 
 interface GoogleDriveConfig {
+  authMode: "oauth" | "service_account";
+  // OAuth fields
   clientId: string;
   clientSecret: string;
+  // Service account fields
+  serviceAccountKey: string; // raw JSON of the service account key file
+  // Common
   pollSeconds: number;
   maxFilesPerSync: number;
-  folderFilter: string; // optional folder ID to restrict imports
+  folderFilter: string;
   ingestHistorical: boolean;
 }
 
 const DEFAULT_CONFIG: GoogleDriveConfig = {
+  authMode: "oauth",
   clientId: "",
   clientSecret: "",
+  serviceAccountKey: "",
   pollSeconds: 1800,
   maxFilesPerSync: 25,
   folderFilter: "",
   ingestHistorical: true,
 };
+
+interface ServiceAccountKey {
+  type: "service_account";
+  project_id: string;
+  private_key_id: string;
+  private_key: string;
+  client_email: string;
+  client_id: string;
+  token_uri: string;
+}
 
 export const GOOGLE_DRIVE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/drive.readonly",
@@ -61,26 +79,47 @@ export const GOOGLE_DRIVE_REDIRECT_PATH = "/api/oauth/callback/google-drive";
 
 const CONFIG_SCHEMA: ConfigField[] = [
   {
+    key: "authMode",
+    label: "Authentication method",
+    type: "select",
+    default: "oauth",
+    options: [
+      { value: "oauth", label: "OAuth (browser sign-in)" },
+      { value: "service_account", label: "Service account (for Advanced Protection)" },
+    ],
+    description:
+      "OAuth uses a normal Google sign-in. Service account uses a robot identity that you share specific Drive folders with — required if your Google account has Advanced Protection enabled.",
+  },
+  {
     key: "clientId",
     label: "OAuth Client ID",
     type: "text",
-    required: true,
     description: "From your Google Cloud OAuth 2.0 Client ID. Ends in .apps.googleusercontent.com.",
     placeholder: "...apps.googleusercontent.com",
+    showWhen: { key: "authMode", equals: "oauth" },
   },
   {
     key: "clientSecret",
     label: "OAuth Client Secret",
     type: "password",
-    required: true,
     description: "From your Google Cloud OAuth 2.0 Client. Starts with GOCSPX-.",
     placeholder: "GOCSPX-…",
+    showWhen: { key: "authMode", equals: "oauth" },
+  },
+  {
+    key: "serviceAccountKey",
+    label: "Service account key JSON",
+    type: "textarea",
+    description:
+      "Paste the entire JSON key file you downloaded from Google Cloud Console. Make sure to share Drive folders with the service account's client_email (shown in the JSON).",
+    placeholder: '{\n  "type": "service_account",\n  "project_id": "...",\n  ...\n}',
+    showWhen: { key: "authMode", equals: "service_account" },
   },
   {
     key: "folderFilter",
     label: "Folder ID (optional)",
     type: "text",
-    description: "Restrict imports to a specific folder. Find in the URL when you open the folder in Drive (the part after /folders/). Leave blank to import all accessible Docs.",
+    description: "Restrict imports to a specific folder. Find in the URL when you open the folder in Drive (the part after /folders/).",
     placeholder: "1AbcDef...",
   },
   {
@@ -103,16 +142,26 @@ const CONFIG_SCHEMA: ConfigField[] = [
   },
 ];
 
-const SETUP_INSTRUCTIONS = `**Setup steps:**
+const SETUP_INSTRUCTIONS = `Pick an authentication method below. Most people should use **OAuth**, but if your Google account has **Advanced Protection** enabled, OAuth flows for unverified apps are blocked — use **Service account** instead.
 
-1. Visit [console.cloud.google.com](https://console.cloud.google.com/) and either pick an existing project or create a new one.
+**OAuth setup:**
+
+1. Visit [console.cloud.google.com](https://console.cloud.google.com/) and pick or create a project.
 2. Enable the **Google Drive API** under "APIs & Services → Library".
-3. Configure the **OAuth consent screen** ("APIs & Services → OAuth consent screen"). Pick "External", fill in the required fields, and add yourself as a Test user. You don't need to publish.
+3. Configure the **OAuth consent screen** ("APIs & Services → OAuth consent screen"). Pick "External", fill in the required fields, and add yourself as a Test user.
 4. Create credentials: "APIs & Services → Credentials → + Create credentials → OAuth client ID". Choose **Web application**.
 5. Add this redirect URI exactly: \`http://localhost:3001/api/oauth/callback/google-drive\`
-6. Copy the **Client ID** and **Client Secret** into the fields below and click **Save settings**.
-7. Click **Connect with Google** below to grant Memory Map access to your Drive.
-8. Once connected, click **Sync now** to start importing.`;
+6. Copy the **Client ID** and **Client Secret** into the fields below, click **Save settings**, then click **Connect with Google**.
+
+**Service account setup (Advanced Protection):**
+
+1. Visit [console.cloud.google.com](https://console.cloud.google.com/) and pick or create a project.
+2. Enable the **Google Drive API**.
+3. **APIs & Services → Credentials → + Create credentials → Service account.** Give it a name and create.
+4. Click into the newly created service account → **Keys** tab → **Add key → Create new key → JSON**. A JSON file downloads.
+5. Copy the value of \`client_email\` from the JSON — it looks like \`name@project.iam.gserviceaccount.com\`.
+6. **In Google Drive**, open each folder or file you want to import. Click **Share** and add the service account's email as a **Viewer**. The service account can only see files you've explicitly shared with it.
+7. Paste the **entire JSON contents** into the field below, click **Save settings**, then **Sync now**.`;
 
 export class GoogleDriveConnector implements Connector {
   readonly type = "google-drive";
@@ -196,20 +245,38 @@ export class GoogleDriveConnector implements Connector {
     const config = { ...DEFAULT_CONFIG, ...(record.config as Partial<GoogleDriveConfig>) };
     const state = record.state as GoogleDriveState;
 
-    if (!config.clientId || !config.clientSecret) {
-      throw new Error(
-        "Google OAuth client not configured. Add Client ID and Client Secret in settings."
-      );
+    // Get an access token, dispatching on auth mode
+    let accessToken: string;
+    if (config.authMode === "service_account") {
+      if (!config.serviceAccountKey || config.serviceAccountKey.trim() === "") {
+        throw new Error(
+          "Service account key not configured. Paste the JSON key file contents in settings."
+        );
+      }
+      let key: ServiceAccountKey;
+      try {
+        key = JSON.parse(config.serviceAccountKey) as ServiceAccountKey;
+      } catch {
+        throw new Error("Service account key is not valid JSON.");
+      }
+      if (!key.client_email || !key.private_key) {
+        throw new Error("Service account JSON is missing client_email or private_key.");
+      }
+      accessToken = await this.ensureServiceAccountToken(state, key);
+    } else {
+      // OAuth mode
+      if (!config.clientId || !config.clientSecret) {
+        throw new Error(
+          "Google OAuth client not configured. Add Client ID and Client Secret in settings."
+        );
+      }
+      if (!state.refreshToken) {
+        throw new Error(
+          'Not connected to Google Drive yet. Click "Connect with Google" in settings.'
+        );
+      }
+      accessToken = await this.ensureAccessToken(state, config);
     }
-
-    if (!state.refreshToken) {
-      throw new Error(
-        'Not connected to Google Drive yet. Click "Connect with Google" in settings.'
-      );
-    }
-
-    // Ensure we have a valid access token
-    const accessToken = await this.ensureAccessToken(state, config);
 
     // First sync: optionally skip historical
     const isFirstSync = !state.lastModifiedTime;
@@ -308,6 +375,70 @@ export class GoogleDriveConnector implements Connector {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────
+
+  /**
+   * Get a service account access token, refreshing if needed.
+   * Service accounts use the JWT bearer flow rather than refresh tokens —
+   * we sign a fresh JWT and exchange it for an access token whenever the
+   * cached one is missing or expired.
+   */
+  private async ensureServiceAccountToken(
+    state: GoogleDriveState,
+    key: ServiceAccountKey
+  ): Promise<string> {
+    const now = Date.now();
+    const expiry = state.accessTokenExpiry ?? 0;
+    if (state.accessToken && expiry - now > 60_000) {
+      return state.accessToken;
+    }
+
+    const jwt = this.signServiceAccountJWT(key, GOOGLE_DRIVE_OAUTH_SCOPES);
+    const body = new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    });
+
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `Service account token exchange failed: ${res.status} ${text.slice(0, 300)}`
+      );
+    }
+    const tokens = (await res.json()) as { access_token: string; expires_in: number };
+
+    state.accessToken = tokens.access_token;
+    state.accessTokenExpiry = now + tokens.expires_in * 1000;
+    return tokens.access_token;
+  }
+
+  /** Sign a JWT for service account authentication */
+  private signServiceAccountJWT(key: ServiceAccountKey, scopes: string[]): string {
+    const now = Math.floor(Date.now() / 1000);
+    const header = { alg: "RS256", typ: "JWT" };
+    const payload = {
+      iss: key.client_email,
+      scope: scopes.join(" "),
+      aud: "https://oauth2.googleapis.com/token",
+      exp: now + 3600,
+      iat: now,
+    };
+
+    const headerB64 = base64url(Buffer.from(JSON.stringify(header)));
+    const payloadB64 = base64url(Buffer.from(JSON.stringify(payload)));
+    const signingInput = `${headerB64}.${payloadB64}`;
+
+    const signer = createSign("RSA-SHA256");
+    signer.update(signingInput);
+    signer.end();
+    const signature = signer.sign(key.private_key);
+
+    return `${signingInput}.${base64url(signature)}`;
+  }
 
   /** Refresh the access token if it's missing or about to expire */
   private async ensureAccessToken(
@@ -414,4 +545,13 @@ export class GoogleDriveConnector implements Connector {
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+}
+
+/** base64url encoding (RFC 4648, no padding) */
+function base64url(input: Buffer): string {
+  return input
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
