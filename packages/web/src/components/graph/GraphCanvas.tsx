@@ -79,9 +79,9 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const pinnedIdsRef = useRef<Set<string>>(new Set());
   const styleRef = useRef<GraphStyle>(getStyleById("clean"));
   const roughRef = useRef<RoughCanvas | null>(null);
-  const blurLabelsRef = useRef<boolean>(false);
+  const labelsVisibleRef = useRef<boolean>(true);
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
-  const [blurLabels, setBlurLabels] = useState<boolean>(false);
+  const [labelsVisible, setLabelsVisible] = useState<boolean>(true);
 
   const { nodes, edges, freshNodes, pinnedIds, pin, graphStyleId, setGraphStyle } =
     useGraphStore();
@@ -96,8 +96,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   }, [graphStyleId]);
 
   useEffect(() => {
-    blurLabelsRef.current = blurLabels;
-  }, [blurLabels]);
+    labelsVisibleRef.current = labelsVisible;
+  }, [labelsVisible]);
 
   // Build adjacency map for hover highlighting
   useEffect(() => {
@@ -508,8 +508,12 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           ctx.stroke();
         }
 
-        // Label
-        if (showLabels && (isHighlighted || isHovered)) {
+        // Label (skipped entirely when demo mode hides labels)
+        if (
+          labelsVisibleRef.current &&
+          showLabels &&
+          (isHighlighted || isHovered)
+        ) {
           const fontSize = isHovered ? s.label.hoverSize : s.label.size;
           const fontWeight = isHovered ? s.label.hoverFontWeight : s.label.fontWeight;
           ctx.font = `${fontWeight} ${fontSize}px ${s.label.font}`;
@@ -520,7 +524,6 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           const padX = 4;
           const labelY = node.y! + radius + 4;
 
-          // Background is always crisp so there's a visible label placeholder
           ctx.fillStyle = s.label.bgColor;
           ctx.fillRect(
             node.x - metrics.width / 2 - padX,
@@ -529,21 +532,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
             fontSize + 4
           );
 
-          // Text: when demo mode is on, draw a redaction bar instead
-          if (blurLabelsRef.current) {
-            const barHeight = Math.max(3, Math.round(fontSize * 0.55));
-            const barY = labelY + Math.round((fontSize + 4 - barHeight) / 2);
-            ctx.fillStyle = rgba(s.label.color, opacity * 0.5);
-            ctx.fillRect(
-              node.x - metrics.width / 2,
-              barY,
-              metrics.width,
-              barHeight
-            );
-          } else {
-            ctx.fillStyle = rgba(s.label.color, opacity);
-            ctx.fillText(text, node.x, labelY + fontSize);
-          }
+          ctx.fillStyle = rgba(s.label.color, opacity);
+          ctx.fillText(text, node.x, labelY + fontSize);
         }
       }
 
@@ -968,15 +958,15 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
           ))}
         </select>
         <button
-          onClick={() => setBlurLabels((v) => !v)}
-          title={blurLabels ? "Show labels" : "Blur labels for demo"}
+          onClick={() => setLabelsVisible((v) => !v)}
+          title={labelsVisible ? "Hide labels for demo" : "Show labels"}
           className={`px-2.5 py-1.5 rounded-md border text-xs transition flex items-center gap-1.5 ${
-            blurLabels
+            !labelsVisible
               ? "bg-amber-100/90 border-amber-300 text-amber-900 hover:bg-amber-100"
               : `${sc.bg} ${sc.border} ${sc.text} ${sc.hoverBg} ${sc.hoverBorder}`
           }`}
         >
-          {blurLabels ? "Blur: on" : "Blur: off"}
+          {labelsVisible ? "Labels: on" : "Labels: off"}
         </button>
         <button
           onClick={resetView}
