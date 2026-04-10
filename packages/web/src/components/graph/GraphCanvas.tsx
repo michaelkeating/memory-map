@@ -529,25 +529,17 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
             fontSize + 4
           );
 
-          // Text: blur when demo mode is on
+          // Text: when demo mode is on, draw a redaction bar instead
           if (blurLabelsRef.current) {
-            // ctx.filter blur is broken on iOS Safari, so simulate it
-            // by overdrawing the text many times at low opacity in a
-            // small circle. The result looks like a soft blur and works
-            // in every browser.
-            ctx.fillStyle = rgba(s.label.color, opacity * 0.2);
-            const passes = 10;
-            const radius = 2.5;
-            for (let i = 0; i < passes; i++) {
-              const angle = (i / passes) * Math.PI * 2;
-              ctx.fillText(
-                text,
-                node.x + Math.cos(angle) * radius,
-                labelY + fontSize + Math.sin(angle) * radius
-              );
-            }
-            // One more pass at the center for slightly more density
-            ctx.fillText(text, node.x, labelY + fontSize);
+            const barHeight = Math.max(3, Math.round(fontSize * 0.55));
+            const barY = labelY + Math.round((fontSize + 4 - barHeight) / 2);
+            ctx.fillStyle = rgba(s.label.color, opacity * 0.5);
+            ctx.fillRect(
+              node.x - metrics.width / 2,
+              barY,
+              metrics.width,
+              barHeight
+            );
           } else {
             ctx.fillStyle = rgba(s.label.color, opacity);
             ctx.fillText(text, node.x, labelY + fontSize);
