@@ -531,11 +531,23 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
           // Text: blur when demo mode is on
           if (blurLabelsRef.current) {
-            ctx.save();
-            ctx.filter = "blur(3.5px)";
-            ctx.fillStyle = rgba(s.label.color, opacity);
+            // ctx.filter blur is broken on iOS Safari, so simulate it
+            // by overdrawing the text many times at low opacity in a
+            // small circle. The result looks like a soft blur and works
+            // in every browser.
+            ctx.fillStyle = rgba(s.label.color, opacity * 0.2);
+            const passes = 10;
+            const radius = 2.5;
+            for (let i = 0; i < passes; i++) {
+              const angle = (i / passes) * Math.PI * 2;
+              ctx.fillText(
+                text,
+                node.x + Math.cos(angle) * radius,
+                labelY + fontSize + Math.sin(angle) * radius
+              );
+            }
+            // One more pass at the center for slightly more density
             ctx.fillText(text, node.x, labelY + fontSize);
-            ctx.restore();
           } else {
             ctx.fillStyle = rgba(s.label.color, opacity);
             ctx.fillText(text, node.x, labelY + fontSize);
