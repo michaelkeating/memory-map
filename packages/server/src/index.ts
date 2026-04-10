@@ -24,6 +24,7 @@ import { ScreenpipeConnector } from "./connectors/screenpipe.js";
 import { NotionConnector } from "./connectors/notion.js";
 import { GoogleDriveConnector } from "./connectors/google-drive.js";
 import { registerOAuthRoutes } from "./api/oauth.js";
+import { registerScreenpipeRoutes } from "./api/screenpipe.js";
 import { SourceStore } from "./storage/source-store.js";
 import { ProfileService } from "./llm/profile-service.js";
 import { registerProfileRoutes } from "./api/profiles.js";
@@ -112,6 +113,7 @@ async function main() {
   registerConnectorRoutes(app, connectorStore, connectorRunner);
   registerProfileRoutes(app, sourceStore, profileService);
   registerOAuthRoutes(app, connectorStore);
+  registerScreenpipeRoutes(app, connectorStore, sourceStore, organizer, graphService, wsHub);
 
   // Health check
   app.get("/api/health", async () => ({

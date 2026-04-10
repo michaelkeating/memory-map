@@ -29,6 +29,8 @@ interface ScreenpipeConfig {
   minImportance: number; // skip memories below this
   maxPerSync: number;
   ingestHistorical: boolean; // on first sync, pull all existing memories
+  sourceFilter: string; // optional: only ingest memories with this source
+  tagFilter: string; // optional: only ingest memories with this tag
 }
 
 const DEFAULT_CONFIG: ScreenpipeConfig = {
@@ -37,6 +39,8 @@ const DEFAULT_CONFIG: ScreenpipeConfig = {
   minImportance: 0.5,
   maxPerSync: 50,
   ingestHistorical: true,
+  sourceFilter: "",
+  tagFilter: "",
 };
 
 const SCREENPIPE_CONFIG_SCHEMA: ConfigField[] = [
@@ -46,6 +50,22 @@ const SCREENPIPE_CONFIG_SCHEMA: ConfigField[] = [
     type: "text",
     default: "http://localhost:3030",
     description: "Where the Screenpipe API is running. Default is fine for local installs.",
+  },
+  {
+    key: "sourceFilter",
+    label: "Source filter (optional)",
+    type: "text",
+    description:
+      'Only auto-import memories with this exact source (e.g. "digital-clone", "manual"). Leave blank to import from all sources.',
+    placeholder: "digital-clone",
+  },
+  {
+    key: "tagFilter",
+    label: "Tag filter (optional)",
+    type: "text",
+    description:
+      'Only auto-import memories that have this tag (e.g. "memorymap", "important"). Leave blank to ignore tags.',
+    placeholder: "memorymap",
   },
   {
     key: "minImportance",
@@ -169,6 +189,15 @@ export class ScreenpipeConnector implements Connector {
     url.searchParams.set("limit", String(config.maxPerSync));
     url.searchParams.set("order_by", "id");
     url.searchParams.set("order_dir", "asc");
+    if (config.sourceFilter && config.sourceFilter.trim()) {
+      url.searchParams.set("source", config.sourceFilter.trim());
+    }
+    if (config.tagFilter && config.tagFilter.trim()) {
+      url.searchParams.set("tags", config.tagFilter.trim());
+    }
+    if (config.minImportance > 0) {
+      url.searchParams.set("min_importance", String(config.minImportance));
+    }
 
     const res = await fetch(url.toString());
     if (!res.ok) {

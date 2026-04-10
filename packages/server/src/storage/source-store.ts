@@ -108,6 +108,16 @@ export class SourceStore {
       .get(id) as any;
     return row ? rowToSource(row) : null;
   }
+
+  /** Look up a source by its upstream identifier (e.g. Screenpipe memory id) */
+  getByExternal(externalSource: string, externalId: string): MemorySource | null {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM memory_sources WHERE external_source = ? AND external_id = ?"
+      )
+      .get(externalSource, externalId) as any;
+    return row ? rowToSource(row) : null;
+  }
 }
 
 function rowToSource(row: any): MemorySource {

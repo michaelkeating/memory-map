@@ -6,6 +6,7 @@ import type {
   ConnectorTypeInfo,
   ConfigField,
 } from "@memory-map/shared";
+import { MemoryBrowser } from "./MemoryBrowser.js";
 
 interface ConnectorsPanelProps {
   open: boolean;
@@ -18,6 +19,7 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
   const [loading, setLoading] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [memoryBrowserOpen, setMemoryBrowserOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -132,10 +134,20 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
               onToggle={() => toggleEnabled(c)}
               onSync={() => triggerSync(c)}
               onSaveConfig={(config) => saveConfig(c, config)}
+              onBrowseMemories={
+                c.type === "screenpipe"
+                  ? () => setMemoryBrowserOpen(true)
+                  : undefined
+              }
             />
           ))}
         </div>
       </div>
+
+      <MemoryBrowser
+        open={memoryBrowserOpen}
+        onClose={() => setMemoryBrowserOpen(false)}
+      />
     </>
   );
 }
@@ -149,6 +161,7 @@ function ConnectorCard({
   onToggle,
   onSync,
   onSaveConfig,
+  onBrowseMemories,
 }: {
   connector: ConnectorRecord;
   info: ConnectorTypeInfo | undefined;
@@ -158,6 +171,7 @@ function ConnectorCard({
   onToggle: () => void;
   onSync: () => void;
   onSaveConfig: (config: Record<string, unknown>) => void;
+  onBrowseMemories?: () => void;
 }) {
   const lastSync = connector.lastSyncAt ? formatRelative(connector.lastSyncAt) : "never";
 
@@ -195,7 +209,7 @@ function ConnectorCard({
           )}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={onSync}
             disabled={syncing}
@@ -209,6 +223,14 @@ function ConnectorCard({
               className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
             >
               {expanded ? "Hide settings" : "Configure"}
+            </button>
+          )}
+          {onBrowseMemories && (
+            <button
+              onClick={onBrowseMemories}
+              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+            >
+              Browse memories
             </button>
           )}
         </div>
