@@ -158,6 +158,62 @@ export function registerScreenpipeRoutes(
     }
   );
 
+  /**
+   * Push endpoint for the Screenpipe pipe to call. The pipe POSTs the
+   * full memory payload here so we don't need to round-trip back to
+   * Screenpipe to fetch it. Idempotent — re-importing the same
+   * external_id is fine (it just updates the source).
+   */
+  app.post<{
+    Body: {
+      external_id?: string | number;
+      content?: string;
+      source?: string;
+      tags?: string[];
+      importance?: number;
+      created_at?: string;
+    };
+  }>("/api/screenpipe/push", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.external_id || !body.content) {
+      return reply.code(400).send({
+        error: "external_id and content are required",
+      });
+    }
+
+    const memoryLike = {
+      id: body.external_id,
+      content: body.content,
+      source: body.source ?? "pipe-push",
+      tags: body.tags ?? [],
+      importance: body.importance ?? 0.5,
+      created_at: body.created_at ?? new Date().toISOString(),
+    };
+
+    const blob = formatMemoryForLLM(memoryLike as any);
+    try {
+      await organizer.ingest({
+        externalSource: "screenpipe",
+        externalId: String(memoryLike.id),
+        content: blob,
+        sourceLabel: `Screenpipe / ${memoryLike.source}`,
+        capturedAt: memoryLike.created_at,
+        importance: memoryLike.importance,
+        tags: memoryLike.tags,
+      });
+    } catch (err) {
+      return reply.code(500).send({
+        error: "Push failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const graph = graphService.getFullGraph();
+    wsHub.broadcast({ type: "graph:full", graph });
+
+    return { ok: true };
+  });
+
   /** List distinct sources currently in Screenpipe (for filter dropdown) */
   app.get("/api/screenpipe/sources", async (_request, reply) => {
     const baseUrl = getBaseUrl();
