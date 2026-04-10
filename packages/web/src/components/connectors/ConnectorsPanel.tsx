@@ -104,7 +104,7 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
         onClick={onClose}
       />
 
-      <div className="fixed top-0 right-0 h-full w-[440px] bg-white border-l border-zinc-200 z-50 shadow-2xl flex flex-col">
+      <div className="fixed top-0 right-0 h-[100dvh] w-full sm:w-[440px] bg-white border-l border-zinc-200 z-50 shadow-2xl flex flex-col">
         <div className="h-14 border-b border-zinc-200 flex items-center justify-between px-5">
           <h2 className="text-[15px] font-semibold text-zinc-900">Connectors</h2>
           <button

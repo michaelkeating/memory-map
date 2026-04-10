@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
+    host: true, // bind to all interfaces so phone can reach over LAN
     proxy: {
       "/api": {
         target: "http://localhost:3001",

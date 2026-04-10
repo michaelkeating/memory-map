@@ -61,6 +61,20 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const dragStartRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const dragMovedRef = useRef<boolean>(false);
   const panningRef = useRef<{ startX: number; startY: number } | null>(null);
+  // Touch state for mobile gestures
+  interface TouchSession {
+    mode: "tap-or-pan" | "panning" | "dragging" | "pinching";
+    startX: number; // initial pointer screen X
+    startY: number;
+    startTime: number;
+    moved: boolean;
+    node: SimNode | null; // pressed node, if any
+    // Pinch
+    initialPinchDist: number;
+    initialScale: number;
+    initialPinchCenter: { x: number; y: number };
+  }
+  const touchSessionRef = useRef<TouchSession | null>(null);
   const adjacencyRef = useRef<Map<string, Set<string>>>(new Map());
   const pinnedIdsRef = useRef<Set<string>>(new Set());
   const styleRef = useRef<GraphStyle>(getStyleById("clean"));
@@ -696,6 +710,197 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     if (simRef.current) simRef.current.alpha(0.5).restart();
   }, []);
 
+  // ─── Touch handling ─────────────────────────────────────────
+  // Touch events use native listeners with { passive: false } so we can
+  // call preventDefault() — required to stop the browser from scrolling
+  // or pinch-zooming the page itself.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const pinchDistance = (t1: Touch, t2: Touch): number => {
+      const dx = t1.clientX - t2.clientX;
+      const dy = t1.clientY - t2.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const pinchCenter = (t1: Touch, t2: Touch): { x: number; y: number } => ({
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2,
+    });
+
+    const handleTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+
+      if (e.touches.length === 1) {
+        const touch = e.touches[0];
+        const { x, y } = toGraphCoords(touch.clientX, touch.clientY);
+        const node = findNodeAt(x, y);
+        touchSessionRef.current = {
+          mode: "tap-or-pan",
+          startX: touch.clientX,
+          startY: touch.clientY,
+          startTime: Date.now(),
+          moved: false,
+          node,
+          initialPinchDist: 0,
+          initialScale: 1,
+          initialPinchCenter: { x: 0, y: 0 },
+        };
+      } else if (e.touches.length === 2) {
+        // Cancel any single-touch interaction and start pinch
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        touchSessionRef.current = {
+          mode: "pinching",
+          startX: 0,
+          startY: 0,
+          startTime: Date.now(),
+          moved: true,
+          node: null,
+          initialPinchDist: pinchDistance(t1, t2),
+          initialScale: viewportRef.current.scale,
+          initialPinchCenter: pinchCenter(t1, t2),
+        };
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const session = touchSessionRef.current;
+      if (!session) return;
+
+      // Pinch-to-zoom
+      if (session.mode === "pinching" && e.touches.length === 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = pinchDistance(t1, t2);
+        if (session.initialPinchDist > 0) {
+          const scaleFactor = dist / session.initialPinchDist;
+          const newScale = Math.max(0.2, Math.min(4, session.initialScale * scaleFactor));
+          // Zoom about the initial pinch center (in screen coords)
+          const rect = canvas.getBoundingClientRect();
+          const cx = session.initialPinchCenter.x - rect.left;
+          const cy = session.initialPinchCenter.y - rect.top;
+          // Convert center to graph coords using OLD viewport
+          const oldVp = viewportRef.current;
+          const gx = (cx - oldVp.x) / oldVp.scale;
+          const gy = (cy - oldVp.y) / oldVp.scale;
+          // Set new viewport so that gx,gy stays under the pinch center
+          oldVp.x = cx - gx * newScale;
+          oldVp.y = cy - gy * newScale;
+          oldVp.scale = newScale;
+        }
+        return;
+      }
+
+      // Single-touch handling
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - session.startX;
+      const dy = touch.clientY - session.startY;
+      const distSq = dx * dx + dy * dy;
+
+      // Promote tap-or-pan to a real interaction once moved enough
+      if (session.mode === "tap-or-pan" && distSq > 36) {
+        session.moved = true;
+        if (session.node) {
+          // Drag the node
+          session.mode = "dragging";
+          session.node.fx = session.node.x;
+          session.node.fy = session.node.y;
+        } else {
+          session.mode = "panning";
+        }
+      }
+
+      if (session.mode === "panning") {
+        // Move viewport by delta from last position
+        const lastDx = touch.clientX - session.startX;
+        const lastDy = touch.clientY - session.startY;
+        // Apply delta and update startX/startY for incremental panning
+        viewportRef.current.x += lastDx;
+        viewportRef.current.y += lastDy;
+        session.startX = touch.clientX;
+        session.startY = touch.clientY;
+      } else if (session.mode === "dragging" && session.node) {
+        const { x, y } = toGraphCoords(touch.clientX, touch.clientY);
+        session.node.fx = x;
+        session.node.fy = y;
+        if (simRef.current) simRef.current.alpha(0.3).restart();
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      const session = touchSessionRef.current;
+      if (!session) return;
+
+      // If a finger lifted from a pinch, leave the remaining finger as
+      // a fresh single-touch session (don't continue pinch with one finger)
+      if (session.mode === "pinching") {
+        if (e.touches.length === 1) {
+          const touch = e.touches[0];
+          touchSessionRef.current = {
+            mode: "panning",
+            startX: touch.clientX,
+            startY: touch.clientY,
+            startTime: Date.now(),
+            moved: true,
+            node: null,
+            initialPinchDist: 0,
+            initialScale: 1,
+            initialPinchCenter: { x: 0, y: 0 },
+          };
+          return;
+        }
+        if (e.touches.length === 0) {
+          touchSessionRef.current = null;
+          return;
+        }
+        return;
+      }
+
+      if (e.touches.length > 0) {
+        // Some fingers still down — wait for the last lift
+        return;
+      }
+
+      // All fingers up. If it was a quick stationary touch, treat as tap.
+      const elapsed = Date.now() - session.startTime;
+      if (
+        session.mode === "tap-or-pan" &&
+        !session.moved &&
+        elapsed < 500
+      ) {
+        if (session.node && onNodeClick) {
+          onNodeClick(session.node.id);
+        }
+      } else if (session.mode === "dragging" && session.node) {
+        // Pin the node where it was dragged
+        pin(session.node.id);
+      }
+
+      touchSessionRef.current = null;
+    };
+
+    const handleTouchCancel = () => {
+      touchSessionRef.current = null;
+    };
+
+    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+    canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
+    canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
+    canvas.addEventListener("touchcancel", handleTouchCancel, { passive: false });
+
+    return () => {
+      canvas.removeEventListener("touchstart", handleTouchStart);
+      canvas.removeEventListener("touchmove", handleTouchMove);
+      canvas.removeEventListener("touchend", handleTouchEnd);
+      canvas.removeEventListener("touchcancel", handleTouchCancel);
+    };
+  }, [toGraphCoords, findNodeAt, onNodeClick, pin]);
+
   const activeStyle = getStyleById(graphStyleId);
   const sc = activeStyle.controls;
   const st = activeStyle.tooltip;
@@ -705,6 +910,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     <div ref={containerRef} className="w-full h-full relative overflow-hidden">
       <canvas
         ref={canvasRef}
+        style={{ touchAction: "none" }}
         onMouseMove={handleMouseMove}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}

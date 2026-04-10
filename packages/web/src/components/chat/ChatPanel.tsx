@@ -19,7 +19,7 @@ export function ChatPanel({ onOpenPage }: ChatPanelProps) {
 
   return (
     <div className="flex flex-col h-full bg-white">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-5">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-2 max-w-sm">
