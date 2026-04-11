@@ -23,6 +23,11 @@ import {
   type GraphStyle,
   type RGB,
 } from "./styles.js";
+import {
+  type Category,
+  isNodeVisible as isCategoryVisible,
+  getNodeCategoryColor,
+} from "./categories.js";
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
@@ -84,6 +89,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const activePageIdRef = useRef<string | null>(null);
   /** Last time the user wheeled — used to pause focus tracking briefly */
   const lastWheelTimeRef = useRef<number>(0);
+  const categoriesRef = useRef<Category[]>([]);
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
   const [labelsVisible, setLabelsVisible] = useState<boolean>(true);
 
@@ -98,6 +104,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     focusedIds,
     activePageId,
     clearFocus,
+    categories,
+    toggleCategoryVisibility,
+    addCustomCategory,
+    removeCategory,
   } = useGraphStore();
 
   // Mirror reactive state into refs for the rAF render loop
@@ -120,6 +130,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   useEffect(() => {
     activePageIdRef.current = activePageId;
   }, [activePageId]);
+
+  useEffect(() => {
+    categoriesRef.current = categories;
+  }, [categories]);
 
   // Build adjacency map for hover highlighting
   useEffect(() => {
@@ -358,6 +372,16 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       const adj = adjacencyRef.current;
       const showLabels = vp.scale > 0.55;
 
+      // Build a quick "is this node visible (per category)" set for the
+      // edge filter. Nodes whose category is hidden don't render.
+      const cats = categoriesRef.current;
+      const hiddenNodeIds = new Set<string>();
+      for (const node of currentNodes) {
+        if (!isCategoryVisible(node.tags, cats)) {
+          hiddenNodeIds.add(node.id);
+        }
+      }
+
       // Determine highlight set:
       // - hover takes priority (1st-degree neighborhood)
       // - else: union of (chat-focused IDs) + (active page ID) plus
@@ -388,6 +412,9 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         const source = link.source as SimNode;
         const target = link.target as SimNode;
         if (source.x == null || target.x == null) continue;
+        // Skip edges where either endpoint is hidden by category filter
+        if (hiddenNodeIds.has(source.id) || hiddenNodeIds.has(target.id))
+          continue;
 
         const isHighlighted =
           !highlightSet ||
@@ -499,6 +526,9 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       // Draw nodes
       for (const node of currentNodes) {
         if (node.x == null) continue;
+        // Skip nodes whose category is hidden
+        if (hiddenNodeIds.has(node.id)) continue;
+
         const isHovered = node.id === hoveredId;
         const isHighlighted = !highlightSet || highlightSet.has(node.id);
         const opacity = isHighlighted ? 1 : s.node.dimOpacity;
@@ -517,7 +547,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
         const nodeColor = node.isFresh
           ? s.node.freshFill
-          : getNodeColor(node.tags, s);
+          : getNodeCategoryColor(node.tags, cats, s);
         const fill = rgba(nodeColor, opacity);
         const bc = isPinned ? s.node.pinnedBorderColor : s.node.borderColor;
         const bw = isPinned ? s.node.pinnedBorderWidth : s.node.borderWidth;
@@ -1096,47 +1126,196 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         </button>
       </div>
 
-      {/* Legend */}
-      <div
-        className={`absolute top-4 left-4 px-3 py-2.5 rounded-md ${sc.bg} border ${sc.border} text-[10px] ${sc.text} space-y-1.5 pointer-events-none`}
-      >
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2.5 h-2.5 rounded-full"
-            style={{ background: `rgb(${nc.person.r},${nc.person.g},${nc.person.b})` }}
-          />
-          <span>Person</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2.5 h-2.5 rounded-full"
-            style={{ background: `rgb(${nc.project.r},${nc.project.g},${nc.project.b})` }}
-          />
-          <span>Project</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2.5 h-2.5 rounded-full"
-            style={{ background: `rgb(${nc.company.r},${nc.company.g},${nc.company.b})` }}
-          />
-          <span>Company</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2.5 h-2.5 rounded-full"
-            style={{ background: `rgb(${nc.default.r},${nc.default.g},${nc.default.b})` }}
-          />
-          <span>Concept</span>
-        </div>
+      {/* Legend (interactive) */}
+      <Legend
+        categories={categories}
+        styleColors={nc}
+        controls={sc}
+        nodes={nodes}
+        onToggle={toggleCategoryVisibility}
+        onAdd={addCustomCategory}
+        onRemove={removeCategory}
+      />
+    </div>
+  );
+}
+
+function Legend({
+  categories,
+  styleColors,
+  controls,
+  nodes,
+  onToggle,
+  onAdd,
+  onRemove,
+}: {
+  categories: Category[];
+  styleColors: GraphStyle["node"]["colors"];
+  controls: GraphStyle["controls"];
+  nodes: Array<{ tags: string[] }>;
+  onToggle: (id: string) => void;
+  onAdd: (label: string, tag: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Resolve a category to its display color
+  const colorForCategory = (cat: Category): RGB => {
+    if (cat.builtin) {
+      switch (cat.id) {
+        case "person":
+          return styleColors.person;
+        case "project":
+          return styleColors.project;
+        case "company":
+          return styleColors.company;
+        default:
+          return styleColors.default;
+      }
+    }
+    return cat.customColor ?? styleColors.default;
+  };
+
+  // Build the list of distinct tags currently in use across all nodes,
+  // excluding tags that already have a category.
+  const claimedTags = new Set<string>();
+  for (const c of categories) {
+    for (const t of c.tags) claimedTags.add(t);
+  }
+  const allTags = new Map<string, number>();
+  for (const node of nodes) {
+    for (const t of node.tags) {
+      allTags.set(t, (allTags.get(t) ?? 0) + 1);
+    }
+  }
+  const availableTags = [...allTags.entries()]
+    .filter(([t]) => !claimedTags.has(t))
+    .sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div
+      className={`absolute top-4 left-4 px-3 py-2.5 rounded-md ${controls.bg} border ${controls.border} text-[10px] ${controls.text} space-y-1.5`}
+    >
+      {categories.map((cat) => {
+        const color = colorForCategory(cat);
+        return (
+          <div key={cat.id} className="flex items-center gap-2 group">
+            <button
+              onClick={() => onToggle(cat.id)}
+              className="flex items-center gap-2 cursor-pointer"
+              title={cat.visible ? "Hide" : "Show"}
+            >
+              <div
+                className="w-2.5 h-2.5 rounded-full transition-opacity"
+                style={{
+                  background: `rgb(${color.r},${color.g},${color.b})`,
+                  opacity: cat.visible ? 1 : 0.25,
+                }}
+              />
+              <span
+                className={`transition-opacity ${
+                  cat.visible ? "" : "line-through opacity-40"
+                }`}
+              >
+                {cat.label}
+              </span>
+            </button>
+            {!cat.builtin && (
+              <button
+                onClick={() => onRemove(cat.id)}
+                className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity ml-1 leading-none text-current"
+                title="Remove category"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="pt-1 border-t border-current/10">
+        <button
+          onClick={() => setPickerOpen((v) => !v)}
+          className="flex items-center gap-1.5 cursor-pointer hover:opacity-100 opacity-60 transition-opacity"
+          title="Add a category"
+        >
+          <span className="text-[12px] leading-none">+</span>
+          <span>Category</span>
+        </button>
+      </div>
+
+      {pickerOpen && (
+        <CategoryPicker
+          availableTags={availableTags}
+          onPick={(tag) => {
+            onAdd(capitalize(tag), tag);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CategoryPicker({
+  availableTags,
+  onPick,
+  onClose,
+}: {
+  availableTags: Array<[string, number]>;
+  onPick: (tag: string) => void;
+  onClose: () => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const filtered = availableTags.filter(([t]) =>
+    t.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  return (
+    <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-zinc-200 rounded-md shadow-lg p-2 text-zinc-900 z-10">
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+          Add category from tag
+        </span>
+        <button
+          onClick={onClose}
+          className="text-zinc-400 hover:text-zinc-900 text-base leading-none"
+          aria-label="Close picker"
+        >
+          ×
+        </button>
+      </div>
+      <input
+        type="text"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="Filter tags…"
+        className="w-full px-2 py-1 mb-2 text-[11px] rounded border border-zinc-200 focus:outline-none focus:border-zinc-400"
+      />
+      <div className="max-h-48 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <div className="text-[11px] text-zinc-400 px-1 py-2">
+            No matching tags. Add tags to your pages first.
+          </div>
+        ) : (
+          filtered.map(([tag, count]) => (
+            <button
+              key={tag}
+              onClick={() => onPick(tag)}
+              className="w-full flex items-center justify-between px-2 py-1.5 text-[11px] text-left rounded hover:bg-zinc-100 transition"
+            >
+              <span className="truncate">{tag}</span>
+              <span className="text-zinc-400 tabular-nums ml-2">{count}</span>
+            </button>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-function getNodeColor(tags: string[], style: GraphStyle): RGB {
-  const c = style.node.colors;
-  if (tags.includes("person")) return c.person;
-  if (tags.includes("project")) return c.project;
-  if (tags.includes("company") || tags.includes("organization")) return c.company;
-  return c.default;
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
