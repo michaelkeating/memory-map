@@ -11,8 +11,10 @@ import { useGraphStore } from "../../hooks/useGraph.js";
 
 interface PageViewerProps {
   pageId: string | null;
+  draftMode?: boolean;
   onClose: () => void;
   onNavigate: (id: string) => void;
+  onCreated?: (id: string) => void;
 }
 
 interface PageData {
@@ -24,7 +26,13 @@ interface PageData {
 
 type AssociationSourcesMap = Record<string, MemorySource[]>;
 
-export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
+export function PageViewer({
+  pageId,
+  draftMode = false,
+  onClose,
+  onNavigate,
+  onCreated,
+}: PageViewerProps) {
   const [data, setData] = useState<PageData | null>(null);
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<PageProfile | null>(null);
@@ -46,6 +54,18 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
   const isPinned = pageId ? pinnedIds.has(pageId) : false;
 
   useEffect(() => {
+    // Draft mode: open editor with empty fields, no fetch needed
+    if (draftMode) {
+      setData(null);
+      setProfile(null);
+      setAssocSources({});
+      setExpandedAssocId(null);
+      setEditTitle("");
+      setEditContent("");
+      setEditing(true);
+      setSaveError(null);
+      return;
+    }
     if (!pageId) {
       setData(null);
       setProfile(null);
@@ -83,7 +103,7 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
       })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [pageId]);
+  }, [pageId, draftMode]);
 
   const generateProfile = async (force: boolean = false) => {
     if (!pageId) return;
@@ -132,37 +152,51 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
   };
 
   const cancelEditing = () => {
+    if (draftMode) {
+      // No fallback view — close the whole panel
+      onClose();
+    }
     setEditing(false);
     setSaveError(null);
   };
 
   const saveEdit = async () => {
-    if (!pageId) return;
+    if (!editTitle.trim()) {
+      setSaveError("Title is required");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(`/api/pages/${pageId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: editTitle,
-          content: editContent,
-        }),
-      });
+      // Draft mode → create. Otherwise → update existing.
+      const isDraft = draftMode || !pageId;
+      const res = await fetch(
+        isDraft ? "/api/pages" : `/api/pages/${pageId}`,
+        {
+          method: isDraft ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: editTitle,
+            content: editContent,
+          }),
+        }
+      );
       const json = await res.json();
       if (!res.ok || json.error) {
         setSaveError(json.error ?? "Save failed");
         return;
       }
-      // Update local data with the saved page
-      setData((prev) =>
-        prev ? { ...prev, page: json } : prev
-      );
-      // Profile is now stale; clear it so the user can regenerate
-      setProfile((prev) =>
-        prev ? { ...prev, stale: true } : prev
-      );
-      setEditing(false);
+      if (isDraft) {
+        // The new page is now real. Switch the panel to viewing it.
+        setEditing(false);
+        if (onCreated) onCreated(json.frontmatter.id);
+      } else {
+        // Update local data with the saved page
+        setData((prev) => (prev ? { ...prev, page: json } : prev));
+        // Profile is now stale; clear it so the user can regenerate
+        setProfile((prev) => (prev ? { ...prev, stale: true } : prev));
+        setEditing(false);
+      }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -200,7 +234,7 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
             <span className="text-xs uppercase tracking-wider text-zinc-400">Page</span>
           </div>
           <div className="flex items-center gap-2">
-            {pageId && data && !editing && (
+            {pageId && data && !editing && !draftMode && (
               <button
                 onClick={startEditing}
                 className="text-xs px-2.5 py-1 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
@@ -209,7 +243,7 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
                 Edit
               </button>
             )}
-            {pageId && (
+            {pageId && !draftMode && (
               <button
                 onClick={() => togglePin(pageId)}
                 className={`text-xs px-2.5 py-1 rounded-md border transition flex items-center gap-1.5 ${
@@ -235,12 +269,19 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {loading && <div className="p-6 text-sm text-zinc-400">Loading…</div>}
-          {!loading && !data && (
+          {!draftMode && loading && (
+            <div className="p-6 text-sm text-zinc-400">Loading…</div>
+          )}
+          {!draftMode && !loading && !data && (
             <div className="p-6 text-sm text-zinc-400">Page not found.</div>
           )}
-          {data && editing && (
+          {editing && (data || draftMode) && (
             <div className="p-6 space-y-4">
+              {draftMode && (
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">
+                  New page
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="block text-[10px] uppercase tracking-wider text-zinc-500">
                   Title

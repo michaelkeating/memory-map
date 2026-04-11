@@ -20,6 +20,36 @@ export function registerPageRoutes(
     return pageStore.listAll();
   });
 
+  // Create a new page (user-driven)
+  app.post<{
+    Body: { title: string; content?: string; tags?: string[] };
+  }>("/api/pages", async (request, reply) => {
+    const { title, content, tags } = request.body ?? {};
+    if (!title || !title.trim()) {
+      return reply.code(400).send({ error: "Title is required" });
+    }
+
+    const page = pageStore.create(
+      {
+        title: title.trim(),
+        content: content ?? "",
+        tags: tags ?? [],
+        aliases: [],
+      },
+      "manual"
+    );
+
+    // Index the (probably empty) wikilinks
+    linkIndex.updateForPage(page.frontmatter.id, page.links);
+
+    // Notify clients
+    wsHub.broadcast({ type: "page:created", page });
+    const graph = graphService.getFullGraph();
+    wsHub.broadcast({ type: "graph:full", graph });
+
+    return page;
+  });
+
   // Get a page by ID
   app.get<{ Params: { id: string } }>("/api/pages/:id", async (request, reply) => {
     const page = pageStore.getById(request.params.id);

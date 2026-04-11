@@ -17,15 +17,28 @@ export function App() {
   const [connectorsOpen, setConnectorsOpen] = useState(false);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [pageViewOpen, setPageViewOpen] = useState(false);
+  const [draftMode, setDraftMode] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("graph");
 
   const openPage = (id: string) => {
     setActivePageId(id);
+    setDraftMode(false);
     setPageViewOpen(true);
     if (isMobile) setMobileTab("page");
   };
+  const newPage = () => {
+    setActivePageId(null);
+    setDraftMode(true);
+    setPageViewOpen(true);
+    if (isMobile) setMobileTab("page");
+  };
+  const onPageCreated = (id: string) => {
+    setDraftMode(false);
+    setActivePageId(id);
+  };
   const closePage = () => {
     setPageViewOpen(false);
+    setDraftMode(false);
     if (isMobile && mobileTab === "page") setMobileTab("graph");
   };
 
@@ -44,6 +57,13 @@ export function App() {
           <div className="hidden sm:block text-xs text-zinc-500 tabular-nums">
             {nodes.length} pages · {edges.length} connections
           </div>
+          <button
+            onClick={newPage}
+            className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+            title="Create a new page"
+          >
+            + New
+          </button>
           <button
             onClick={() => setConnectorsOpen(true)}
             className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
@@ -74,8 +94,10 @@ export function App() {
               >
                 <PageViewer
                   pageId={activePageId}
+                  draftMode={draftMode}
                   onClose={closePage}
                   onNavigate={openPage}
+                  onCreated={onPageCreated}
                 />
               </div>
             )}
@@ -118,8 +140,10 @@ export function App() {
               <Panel defaultSize={30} minSize={20}>
                 <PageViewer
                   pageId={activePageId}
+                  draftMode={draftMode}
                   onClose={closePage}
                   onNavigate={openPage}
+                  onCreated={onPageCreated}
                 />
               </Panel>
             </>
