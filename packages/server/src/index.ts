@@ -131,7 +131,7 @@ async function main() {
   );
   registerGraphRoutes(app, graphService);
   registerConnectorRoutes(app, connectorStore, connectorRunner);
-  registerProfileRoutes(app, sourceStore, profileService);
+  registerProfileRoutes(app, sourceStore, profileService, graphService, wsHub);
   registerOAuthRoutes(app, connectorStore);
   registerScreenpipeRoutes(app, connectorStore, sourceStore, organizer, graphService, wsHub);
   registerTagRoutes(app, pageStore, linkIndex, graphService, wsHub, llm, profileService);

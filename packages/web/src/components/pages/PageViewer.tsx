@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -55,6 +55,36 @@ export function PageViewer({
   const togglePin = useGraphStore((s) => s.togglePin);
   const isPinned = pageId ? pinnedIds.has(pageId) : false;
 
+  const fetchPageData = useCallback(
+    async (id: string) => {
+      try {
+        const [page, backlinks, associations, sources, prof] = await Promise.all(
+          [
+            fetch(`/api/pages/${id}`).then((r) => r.json()),
+            fetch(`/api/pages/${id}/backlinks`).then((r) => r.json()),
+            fetch(`/api/pages/${id}/associations`).then((r) => r.json()),
+            fetch(`/api/pages/${id}/sources`).then((r) => r.json()),
+            fetch(`/api/pages/${id}/profile`).then((r) => r.json()),
+          ]
+        );
+        if (page?.error) {
+          setData(null);
+        } else {
+          setData({
+            page,
+            backlinks: Array.isArray(backlinks) ? backlinks : [],
+            associations: Array.isArray(associations) ? associations : [],
+            sources: Array.isArray(sources) ? sources : [],
+          });
+        }
+        setProfile(prof && prof.profileMd ? prof : null);
+      } catch {
+        setData(null);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     // Draft mode: open editor with empty fields, no fetch needed
     if (draftMode) {
@@ -85,29 +115,8 @@ export function PageViewer({
     setAssocSources({});
     setEditing(false);
     setSaveError(null);
-    Promise.all([
-      fetch(`/api/pages/${pageId}`).then((r) => r.json()),
-      fetch(`/api/pages/${pageId}/backlinks`).then((r) => r.json()),
-      fetch(`/api/pages/${pageId}/associations`).then((r) => r.json()),
-      fetch(`/api/pages/${pageId}/sources`).then((r) => r.json()),
-      fetch(`/api/pages/${pageId}/profile`).then((r) => r.json()),
-    ])
-      .then(([page, backlinks, associations, sources, prof]) => {
-        if (page?.error) {
-          setData(null);
-        } else {
-          setData({
-            page,
-            backlinks: Array.isArray(backlinks) ? backlinks : [],
-            associations: Array.isArray(associations) ? associations : [],
-            sources: Array.isArray(sources) ? sources : [],
-          });
-        }
-        setProfile(prof && prof.profileMd ? prof : null);
-      })
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
-  }, [pageId, draftMode]);
+    fetchPageData(pageId).finally(() => setLoading(false));
+  }, [pageId, draftMode, fetchPageData]);
 
   const generateProfile = async (force: boolean = false) => {
     if (!pageId) return;
@@ -564,7 +573,21 @@ export function PageViewer({
                                   </p>
                                 ) : (
                                   sourcesForAssoc.map((src) => (
-                                    <SourceCard key={src.id} source={src} />
+                                    <SourceCard
+                                      key={src.id}
+                                      source={src}
+                                      onDeleted={() => {
+                                        if (pageId) fetchPageData(pageId);
+                                        // Also drop the cached assoc sources
+                                        // for this association so the next
+                                        // expand re-fetches
+                                        setAssocSources((prev) => {
+                                          const next = { ...prev };
+                                          delete next[assoc.id];
+                                          return next;
+                                        });
+                                      }}
+                                    />
                                   ))
                                 )}
                               </div>
@@ -586,7 +609,13 @@ export function PageViewer({
                   <ul className="space-y-2">
                     {data.sources.map((src) => (
                       <li key={src.id}>
-                        <SourceCard source={src} action={src.action} />
+                        <SourceCard
+                          source={src}
+                          action={src.action}
+                          onDeleted={() => {
+                            if (pageId) fetchPageData(pageId);
+                          }}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -689,12 +718,53 @@ function ProfileSection({
 function SourceCard({
   source,
   action,
+  onDeleted,
 }: {
   source: MemorySource;
   action?: string;
+  onDeleted?: () => void;
 }) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    // Look up how many pages reference it for the confirmation message
+    let pageCount = 0;
+    try {
+      const r = await fetch(`/api/sources/${source.id}/page-count`);
+      const j = await r.json();
+      pageCount = j.count ?? 0;
+    } catch {
+      // ignore
+    }
+
+    const msg =
+      `Permanently delete this source memory?\n\n` +
+      `Source: ${source.sourceLabel}\n` +
+      `It currently appears under ${pageCount} page${pageCount === 1 ? "" : "s"}.\n\n` +
+      `This wipes the original content and removes it from every page's source list. ` +
+      `The pages and their content stay intact — only the source attribution is removed.\n\n` +
+      `Future syncs from this connector will skip this item.`;
+
+    if (!window.confirm(msg)) return;
+
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/sources/${source.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        alert(json.error ?? "Delete failed");
+        return;
+      }
+      if (onDeleted) onDeleted();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
-    <div className="rounded border border-zinc-200 bg-white p-3 text-xs">
+    <div className="rounded border border-zinc-200 bg-white p-3 text-xs group">
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[10px] uppercase tracking-wider text-zinc-400 truncate">
@@ -706,9 +776,21 @@ function SourceCard({
             </span>
           )}
         </div>
-        <span className="text-[10px] text-zinc-400 tabular-nums whitespace-nowrap">
-          {formatDate(source.capturedAt)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-zinc-400 tabular-nums whitespace-nowrap">
+            {formatDate(source.capturedAt)}
+          </span>
+          {onDeleted && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-zinc-300 hover:text-red-600 transition-opacity opacity-0 group-hover:opacity-100 leading-none text-base px-1 disabled:opacity-50"
+              title="Permanently delete this source"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
       <p className="text-zinc-700 leading-relaxed line-clamp-4">{source.content}</p>
       {source.importance != null && (

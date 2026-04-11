@@ -165,6 +165,64 @@ export class SourceStore {
       .all() as any[];
     return rows.map(rowToSource);
   }
+
+  /** How many pages currently reference this source memory */
+  countPagesUsingSource(id: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as c FROM page_sources WHERE source_id = ?")
+      .get(id) as { c: number };
+    return row.c;
+  }
+
+  /**
+   * Permanently delete a source memory's content, while keeping a
+   * tombstone row so the connector still skips its external_id on
+   * future syncs. Also removes the page_sources and association_sources
+   * links so the source vanishes from any page's Source Memories
+   * section. Does NOT touch the pages or associations themselves —
+   * they keep all their content.
+   *
+   * Returns the number of page links and association links that were
+   * removed, so the UI can show what was affected.
+   */
+  permanentlyDelete(id: string): {
+    deleted: boolean;
+    pageLinksRemoved: number;
+    associationLinksRemoved: number;
+  } {
+    const row = this.db
+      .prepare("SELECT id FROM memory_sources WHERE id = ?")
+      .get(id) as { id: string } | undefined;
+    if (!row) {
+      return { deleted: false, pageLinksRemoved: 0, associationLinksRemoved: 0 };
+    }
+
+    // Tombstone: wipe content but keep the row + blocked flag so the
+    // external_id is still recognized as blocked on future syncs
+    this.db
+      .prepare(
+        `UPDATE memory_sources
+         SET content = '',
+             tags = '[]',
+             source_label = '[removed]',
+             blocked = 1
+         WHERE id = ?`
+      )
+      .run(id);
+
+    const pageLinksResult = this.db
+      .prepare("DELETE FROM page_sources WHERE source_id = ?")
+      .run(id);
+    const assocLinksResult = this.db
+      .prepare("DELETE FROM association_sources WHERE source_id = ?")
+      .run(id);
+
+    return {
+      deleted: true,
+      pageLinksRemoved: Number(pageLinksResult.changes),
+      associationLinksRemoved: Number(assocLinksResult.changes),
+    };
+  }
 }
 
 function rowToSource(row: any): MemorySource {
