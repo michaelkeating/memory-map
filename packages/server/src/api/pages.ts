@@ -100,30 +100,46 @@ export function registerPageRoutes(
     return associationStore.getForPage(request.params.id);
   });
 
-  // Delete a page. By default this also blocks the source memories that
-  // contributed to it so the next connector sync won't re-create it.
-  // Pass ?keepSources=true to skip the cascade-block.
+  // Delete a page. Three modes via query params:
+  // - default: block source memories so they won't be re-imported
+  // - ?deleteSources=true: PERMANENTLY delete source memories (wipes
+  //   their content; removes them from any other page that referenced
+  //   them too)
+  // - ?keepSources=true: don't touch source memories at all
   app.delete<{
     Params: { id: string };
-    Querystring: { keepSources?: string };
+    Querystring: { keepSources?: string; deleteSources?: string };
   }>("/api/pages/:id", async (request, reply) => {
     const { id } = request.params;
+    const deleteSources = request.query.deleteSources === "true";
+    const keepSources = request.query.keepSources === "true";
 
-    // Block sources BEFORE deleting (we need page_sources rows to find them)
+    // Capture the source IDs before we touch anything (page_sources
+    // rows get removed by either action)
+    const sourceIds = sourceStore.getPageSources(id).map((s) => s.id);
+
     let blockedSources = 0;
-    if (request.query.keepSources !== "true") {
+    let deletedSources = 0;
+    if (deleteSources) {
+      // Permanently delete each source. This also clears the
+      // page_sources rows for those sources across all pages.
+      for (const sid of sourceIds) {
+        const r = sourceStore.permanentlyDelete(sid);
+        if (r.deleted) deletedSources++;
+      }
+    } else if (!keepSources) {
+      // Default behavior: block sources so they don't get re-imported
       blockedSources = sourceStore.blockSourcesForPage(id);
     }
 
     const deleted = pageStore.delete(id);
     if (!deleted) return reply.code(404).send({ error: "Page not found" });
 
-    // Notify clients
     wsHub.broadcast({ type: "page:deleted", pageId: id });
     const graph = graphService.getFullGraph();
     wsHub.broadcast({ type: "graph:full", graph });
 
-    return { ok: true, blockedSources };
+    return { ok: true, blockedSources, deletedSources };
   });
 
   // Search

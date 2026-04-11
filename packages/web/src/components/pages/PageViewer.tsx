@@ -50,6 +50,11 @@ export function PageViewer({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteAlsoSources, setDeleteAlsoSources] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const nodes = useGraphStore((s) => s.nodes);
   const pinnedIds = useGraphStore((s) => s.pinnedIds);
   const togglePin = useGraphStore((s) => s.togglePin);
@@ -188,24 +193,30 @@ export function PageViewer({
     setSaveError(null);
   };
 
-  const handleDelete = async () => {
-    if (!pageId || !data) return;
-    const title = data.page.frontmatter.title;
-    const confirmed = window.confirm(
-      `Delete "${title}"?\n\nThis also blocks the source memories that contributed to it so they won't be re-imported on the next sync.\n\nThis can't be undone from the UI (you'd have to manually unblock the sources).`
-    );
-    if (!confirmed) return;
+  const openDeleteDialog = () => {
+    setDeleteAlsoSources(false);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!pageId) return;
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/pages/${pageId}`, { method: "DELETE" });
+      const url = deleteAlsoSources
+        ? `/api/pages/${pageId}?deleteSources=true`
+        : `/api/pages/${pageId}`;
+      const res = await fetch(url, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok || json.error) {
         alert(json.error ?? "Delete failed");
         return;
       }
-      // Close the panel — the WebSocket will refresh the graph
+      setDeleteDialogOpen(false);
       onClose();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -278,7 +289,7 @@ export function PageViewer({
   };
 
   return (
-    <div className="h-full bg-white flex flex-col">
+    <div className="h-full bg-white flex flex-col relative">
         <div className="h-14 border-b border-zinc-200 flex items-center justify-between px-5 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs uppercase tracking-wider text-zinc-400">Page</span>
@@ -294,9 +305,9 @@ export function PageViewer({
                   Edit
                 </button>
                 <button
-                  onClick={handleDelete}
+                  onClick={openDeleteDialog}
                   className="text-xs px-2.5 py-1 rounded-md border border-zinc-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 transition"
-                  title="Delete this page (and block its sources)"
+                  title="Delete this page"
                 >
                   Delete
                 </button>
@@ -624,6 +635,63 @@ export function PageViewer({
             </div>
           )}
         </div>
+
+        {/* Delete confirmation dialog */}
+        {deleteDialogOpen && data && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-lg bg-white border border-zinc-200 shadow-xl p-5 space-y-4">
+              <div>
+                <h3 className="text-base font-semibold text-zinc-900">
+                  Delete this page?
+                </h3>
+                <p className="text-xs text-zinc-500 mt-1">
+                  "{data.page.frontmatter.title}"
+                </p>
+              </div>
+
+              <label className="flex items-start gap-2.5 text-xs text-zinc-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={deleteAlsoSources}
+                  onChange={(e) => setDeleteAlsoSources(e.target.checked)}
+                  className="mt-0.5"
+                  disabled={deleting}
+                />
+                <span>
+                  Also <strong>permanently delete</strong> the{" "}
+                  {data.sources.length} source memor
+                  {data.sources.length === 1 ? "y" : "ies"} that produced this
+                  page. They'll also be removed from any other pages that
+                  reference them. <span className="text-red-600">This is permanent.</span>
+                </span>
+              </label>
+
+              {!deleteAlsoSources && (
+                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                  By default, source memories are blocked (so future syncs
+                  won't bring this page back) but their content is preserved.
+                </p>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setDeleteDialogOpen(false)}
+                  disabled={deleting}
+                  className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                  className="text-xs px-3 py-1.5 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition"
+                >
+                  {deleting ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }
