@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useGraphStore } from "./useGraph.js";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -9,6 +10,7 @@ interface ChatMessage {
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const setFocusedIds = useGraphStore((s) => s.setFocusedIds);
 
   // Load chat history on mount
   useEffect(() => {
@@ -47,6 +49,11 @@ export function useChat() {
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
+
+      // Focus the graph on whatever pages this turn surfaced
+      if (Array.isArray(data.focusedPageIds)) {
+        setFocusedIds(data.focusedPageIds);
+      }
     } catch (err) {
       const errorMsg: ChatMessage = {
         role: "assistant",

@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import type { AutoOrganizer } from "../llm/auto-organizer.js";
+import type { ChatHandler } from "../llm/chat-handler.js";
 import type { ChatStore } from "../storage/chat-store.js";
 import type { GraphService } from "../engine/graph-service.js";
 import type { WebSocketHub } from "../ws/hub.js";
 
 export function registerChatRoutes(
   app: FastifyInstance,
-  organizer: AutoOrganizer,
+  chatHandler: ChatHandler,
   chatStore: ChatStore,
   graphService: GraphService,
   wsHub: WebSocketHub
@@ -29,17 +29,18 @@ export function registerChatRoutes(
       content: m.content,
     }));
 
-    // Process through LLM auto-organizer
     let response: string;
-    let operations: Awaited<ReturnType<typeof organizer.process>>["operations"];
+    let focusedPageIds: string[];
+    let touchedPageIds: string[];
     try {
-      const result = await organizer.process(message, chatMessages);
+      const result = await chatHandler.chat(message, chatMessages);
       response = result.response;
-      operations = result.operations;
+      focusedPageIds = result.focusedPageIds;
+      touchedPageIds = result.touchedPageIds;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      request.log.error({ err }, "LLM processing failed");
-      return reply.code(500).send({ error: "LLM processing failed", detail: errMsg });
+      request.log.error({ err }, "Chat handler failed");
+      return reply.code(500).send({ error: "Chat handler failed", detail: errMsg });
     }
 
     // Save assistant message
@@ -49,17 +50,23 @@ export function registerChatRoutes(
       content: response,
       timestamp: assistantTimestamp,
       graphDelta: {
-        pagesCreated: operations.createPages.map((p) => p.title),
-        pagesUpdated: operations.updatePages.map((p) => p.slug),
+        pagesCreated: [],
+        pagesUpdated: touchedPageIds,
         associationsCreated: [],
       },
     });
 
-    // Send updated full graph to all clients
-    const graph = graphService.getFullGraph();
-    wsHub.broadcast({ type: "graph:full", graph });
+    // If anything was created/modified, push the new graph
+    if (touchedPageIds.length > 0) {
+      const graph = graphService.getFullGraph();
+      wsHub.broadcast({ type: "graph:full", graph });
+    }
 
-    return { response, operations };
+    return {
+      response,
+      focusedPageIds,
+      touchedPageIds,
+    };
   });
 
   app.get("/api/chat/history", async () => {

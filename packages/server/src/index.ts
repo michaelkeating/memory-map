@@ -13,6 +13,7 @@ import { LinkIndex } from "./engine/link-index.js";
 import { GraphService } from "./engine/graph-service.js";
 import { ClaudeProvider } from "./llm/provider.js";
 import { AutoOrganizer } from "./llm/auto-organizer.js";
+import { ChatHandler } from "./llm/chat-handler.js";
 import { WebSocketHub } from "./ws/hub.js";
 import { registerChatRoutes } from "./api/chat.js";
 import { registerPageRoutes } from "./api/pages.js";
@@ -80,6 +81,14 @@ async function main() {
     sourceStore,
     profileService
   );
+  const chatHandler = new ChatHandler(
+    llm,
+    pageStore,
+    associationStore,
+    linkIndex,
+    wsHub,
+    profileService
+  );
 
   // Initialize connectors
   const connectorStore = new ConnectorStore(db);
@@ -107,7 +116,7 @@ async function main() {
   });
 
   // API routes
-  registerChatRoutes(app, organizer, chatStore, graphService, wsHub);
+  registerChatRoutes(app, chatHandler, chatStore, graphService, wsHub);
   registerPageRoutes(
     app,
     pageStore,

@@ -12,6 +12,8 @@ interface GraphStore {
   edges: GraphEdge[];
   freshNodes: Set<string>;
   pinnedIds: Set<string>;
+  /** Page IDs the chat surfaced — graph highlights these and dims the rest */
+  focusedIds: Set<string>;
   graphStyleId: string;
 
   setGraph: (g: GraphData) => void;
@@ -23,6 +25,8 @@ interface GraphStore {
   unpin: (id: string) => void;
   togglePin: (id: string) => void;
   setGraphStyle: (id: string) => void;
+  setFocusedIds: (ids: string[]) => void;
+  clearFocus: () => void;
 }
 
 export const useGraphStore = create<GraphStore>((set) => ({
@@ -30,11 +34,15 @@ export const useGraphStore = create<GraphStore>((set) => ({
   edges: [],
   freshNodes: new Set(),
   pinnedIds: new Set(),
+  focusedIds: new Set(),
   graphStyleId: "clean",
 
   setGraph: (g) => set({ nodes: g.nodes, edges: g.edges }),
 
   setGraphStyle: (id) => set({ graphStyleId: id }),
+
+  setFocusedIds: (ids) => set({ focusedIds: new Set(ids) }),
+  clearFocus: () => set({ focusedIds: new Set() }),
 
   pin: (id) =>
     set((state) => {

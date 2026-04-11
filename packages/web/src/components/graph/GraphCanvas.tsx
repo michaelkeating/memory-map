@@ -80,11 +80,21 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const styleRef = useRef<GraphStyle>(getStyleById("clean"));
   const roughRef = useRef<RoughCanvas | null>(null);
   const labelsVisibleRef = useRef<boolean>(true);
+  const focusedIdsRef = useRef<Set<string>>(new Set());
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
   const [labelsVisible, setLabelsVisible] = useState<boolean>(true);
 
-  const { nodes, edges, freshNodes, pinnedIds, pin, graphStyleId, setGraphStyle } =
-    useGraphStore();
+  const {
+    nodes,
+    edges,
+    freshNodes,
+    pinnedIds,
+    pin,
+    graphStyleId,
+    setGraphStyle,
+    focusedIds,
+    clearFocus,
+  } = useGraphStore();
 
   // Mirror reactive state into refs for the rAF render loop
   useEffect(() => {
@@ -98,6 +108,15 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   useEffect(() => {
     labelsVisibleRef.current = labelsVisible;
   }, [labelsVisible]);
+
+  useEffect(() => {
+    focusedIdsRef.current = focusedIds;
+    // When new focus arrives, gently re-heat the simulation so positions
+    // settle around the focused nodes (they'll appear more central).
+    if (focusedIds.size > 0 && simRef.current) {
+      simRef.current.alpha(0.15).restart();
+    }
+  }, [focusedIds]);
 
   // Build adjacency map for hover highlighting
   useEffect(() => {
@@ -271,12 +290,21 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       const adj = adjacencyRef.current;
       const showLabels = vp.scale > 0.55;
 
-      // Determine highlight set
+      // Determine highlight set:
+      // - hover takes priority (1st-degree neighborhood)
+      // - else focused IDs from chat (focused + their 1st-degree neighbors)
+      // - else null (everything full opacity)
       let highlightSet: Set<string> | null = null;
       if (hoveredId) {
         highlightSet = new Set([hoveredId]);
         const neighbors = adj.get(hoveredId);
         if (neighbors) for (const n of neighbors) highlightSet.add(n);
+      } else if (focusedIdsRef.current.size > 0) {
+        highlightSet = new Set(focusedIdsRef.current);
+        for (const fid of focusedIdsRef.current) {
+          const neighbors = adj.get(fid);
+          if (neighbors) for (const n of neighbors) highlightSet.add(n);
+        }
       }
 
       // Draw edges
@@ -923,6 +951,20 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       {nodes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
           <p className="text-sm">Your knowledge graph will appear here</p>
+        </div>
+      )}
+
+      {/* Focus indicator (from chat) */}
+      {focusedIds.size > 0 && !hoveredNode && (
+        <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-100/95 backdrop-blur border border-amber-300 text-[11px] text-amber-900 shadow-sm">
+          <span>Focused on {focusedIds.size} page{focusedIds.size === 1 ? "" : "s"}</span>
+          <button
+            onClick={clearFocus}
+            className="text-amber-700 hover:text-amber-900 text-base leading-none"
+            title="Clear focus"
+          >
+            ×
+          </button>
         </div>
       )}
 
