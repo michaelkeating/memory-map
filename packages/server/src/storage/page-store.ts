@@ -271,15 +271,38 @@ export class PageStore {
 
   /** Full-text search */
   search(query: string, limit = 10): Page[] {
-    const rows = this.db
-      .prepare(
-        `SELECT p.slug FROM pages_fts f
-         JOIN pages p ON p.rowid = f.rowid
-         WHERE pages_fts MATCH ?
-         ORDER BY rank
-         LIMIT ?`
-      )
-      .all(query, limit) as Array<{ slug: string }>;
+    // Sanitize query for FTS5. FTS5 has its own query language with
+    // operators like `column:term`, AND/OR/NOT, quotes, parens, etc.
+    // To safely accept any user/LLM input, strip non-word chars and
+    // wrap each remaining token in double quotes (treating each as
+    // a literal phrase). This avoids "no such column" errors when
+    // an unrelated word follows a colon.
+    const safeQuery = query
+      .replace(/[^\w\s'-]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length > 0)
+      .map((t) => `"${t.replace(/"/g, '""')}"`)
+      .join(" ");
+
+    if (!safeQuery) return [];
+
+    let rows: Array<{ slug: string }> = [];
+    try {
+      rows = this.db
+        .prepare(
+          `SELECT p.slug FROM pages_fts f
+           JOIN pages p ON p.rowid = f.rowid
+           WHERE pages_fts MATCH ?
+           ORDER BY rank
+           LIMIT ?`
+        )
+        .all(safeQuery, limit) as Array<{ slug: string }>;
+    } catch (err) {
+      // If FTS5 still rejects the query for some reason, return empty
+      // rather than crashing the caller.
+      console.warn(`[page-store] search failed for "${query}":`, err);
+      return [];
+    }
 
     return rows
       .map((r) => this.getBySlug(r.slug))

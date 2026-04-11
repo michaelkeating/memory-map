@@ -1,5 +1,4 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { ulid } from "ulid";
 import type { LLMProvider, LLMMessage } from "./provider.js";
 import type { PageStore } from "../storage/page-store.js";
 import type { AssociationStore } from "../storage/association-store.js";
@@ -262,10 +261,19 @@ export class ChatHandler {
       // Execute each tool call and collect results
       const toolResults: any[] = [];
       for (const toolCall of result.toolUse) {
-        const { result: toolResult, surfacedIds, touchedIds } = await this.executeTool(
-          toolCall.name,
-          toolCall.input
-        );
+        let toolResult: unknown;
+        let surfacedIds: string[] = [];
+        let touchedIds: string[] = [];
+        try {
+          const exec = await this.executeTool(toolCall.name, toolCall.input);
+          toolResult = exec.result;
+          surfacedIds = exec.surfacedIds;
+          touchedIds = exec.touchedIds;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[chat] tool ${toolCall.name} threw:`, msg);
+          toolResult = { error: msg };
+        }
         for (const id of surfacedIds) surfacedPageIds.add(id);
         for (const id of touchedIds) touchedPageIds.add(id);
 
@@ -532,5 +540,3 @@ export class ChatHandler {
   }
 }
 
-// We need a synthetic ULID import to keep the file self-contained
-void ulid;
