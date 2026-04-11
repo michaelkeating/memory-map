@@ -1268,15 +1268,57 @@ function CategoryPicker({
   onClose: () => void;
 }) {
   const [filter, setFilter] = useState("");
+  const [mode, setMode] = useState<"pick" | "create">("pick");
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagDescription, setNewTagDescription] = useState("");
+  const [applyWithAI, setApplyWithAI] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [createResult, setCreateResult] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const filtered = availableTags.filter(([t]) =>
     t.toLowerCase().includes(filter.toLowerCase())
   );
 
+  const handleCreateTag = async () => {
+    const tag = newTagName.trim().toLowerCase().replace(/\s+/g, "-");
+    if (!tag) return;
+    setCreating(true);
+    setCreateError(null);
+    setCreateResult(null);
+    try {
+      if (applyWithAI) {
+        const res = await fetch("/api/tags/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tag,
+            description: newTagDescription.trim() || undefined,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok || json.error) {
+          setCreateError(json.error ?? "Failed to apply tag");
+          return;
+        }
+        setCreateResult(
+          `Examined ${json.examined} pages, applied to ${json.applied.length}.`
+        );
+      }
+      // Create the category regardless of whether AI tagged anything
+      onPick(tag);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
-    <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-zinc-200 rounded-md shadow-lg p-2 text-zinc-900 z-10">
-      <div className="flex items-center justify-between mb-2 px-1">
+    <div className="absolute top-full left-0 mt-2 w-72 bg-white border border-zinc-200 rounded-md shadow-lg p-3 text-zinc-900 z-10">
+      <div className="flex items-center justify-between mb-2">
         <span className="text-[10px] uppercase tracking-wider text-zinc-500">
-          Add category from tag
+          {mode === "pick" ? "Add category from tag" : "Create new tag"}
         </span>
         <button
           onClick={onClose}
@@ -1286,31 +1328,105 @@ function CategoryPicker({
           ×
         </button>
       </div>
-      <input
-        type="text"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Filter tags…"
-        className="w-full px-2 py-1 mb-2 text-[11px] rounded border border-zinc-200 focus:outline-none focus:border-zinc-400"
-      />
-      <div className="max-h-48 overflow-y-auto">
-        {filtered.length === 0 ? (
-          <div className="text-[11px] text-zinc-400 px-1 py-2">
-            No matching tags. Add tags to your pages first.
+
+      {mode === "pick" ? (
+        <>
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter tags…"
+            className="w-full px-2 py-1 mb-2 text-[11px] rounded border border-zinc-200 focus:outline-none focus:border-zinc-400"
+          />
+          <button
+            onClick={() => setMode("create")}
+            className="w-full flex items-center gap-2 px-2 py-1.5 mb-1 text-[11px] text-left rounded hover:bg-zinc-100 transition border-b border-zinc-100 pb-2"
+          >
+            <span className="text-zinc-500 text-[13px] leading-none">+</span>
+            <span className="font-medium">Create new tag…</span>
+          </button>
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="text-[11px] text-zinc-400 px-1 py-2">
+                No matching tags. Use "Create new tag" above.
+              </div>
+            ) : (
+              filtered.map(([tag, count]) => (
+                <button
+                  key={tag}
+                  onClick={() => onPick(tag)}
+                  className="w-full flex items-center justify-between px-2 py-1.5 text-[11px] text-left rounded hover:bg-zinc-100 transition"
+                >
+                  <span className="truncate">{tag}</span>
+                  <span className="text-zinc-400 tabular-nums ml-2">{count}</span>
+                </button>
+              ))
+            )}
           </div>
-        ) : (
-          filtered.map(([tag, count]) => (
+        </>
+      ) : (
+        <div className="space-y-2">
+          <div>
+            <label className="block text-[10px] text-zinc-500 mb-1">Tag name</label>
+            <input
+              type="text"
+              value={newTagName}
+              onChange={(e) => setNewTagName(e.target.value)}
+              placeholder="investor"
+              autoFocus
+              disabled={creating}
+              className="w-full px-2 py-1 text-[11px] rounded border border-zinc-200 focus:outline-none focus:border-zinc-400"
+            />
+            <p className="text-[9px] text-zinc-500 mt-1">
+              Lowercase, dashes for spaces (e.g. <code>seed-investor</code>)
+            </p>
+          </div>
+          <div>
+            <label className="block text-[10px] text-zinc-500 mb-1">
+              Description (helps the AI decide)
+            </label>
+            <textarea
+              value={newTagDescription}
+              onChange={(e) => setNewTagDescription(e.target.value)}
+              placeholder="People or firms that have invested in companies I follow"
+              rows={3}
+              disabled={creating}
+              className="w-full px-2 py-1 text-[11px] rounded border border-zinc-200 focus:outline-none focus:border-zinc-400 resize-y"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-zinc-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={applyWithAI}
+              onChange={(e) => setApplyWithAI(e.target.checked)}
+              disabled={creating}
+            />
+            <span>Apply to existing pages with AI</span>
+          </label>
+          {createResult && (
+            <p className="text-[10px] text-emerald-700">{createResult}</p>
+          )}
+          {createError && (
+            <p className="text-[10px] text-red-600">{createError}</p>
+          )}
+          <div className="flex items-center gap-2 pt-1">
             <button
-              key={tag}
-              onClick={() => onPick(tag)}
-              className="w-full flex items-center justify-between px-2 py-1.5 text-[11px] text-left rounded hover:bg-zinc-100 transition"
+              onClick={handleCreateTag}
+              disabled={creating || !newTagName.trim()}
+              className="px-3 py-1.5 text-[11px] font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 transition"
             >
-              <span className="truncate">{tag}</span>
-              <span className="text-zinc-400 tabular-nums ml-2">{count}</span>
+              {creating ? "Working…" : "Create"}
             </button>
-          ))
-        )}
-      </div>
+            <button
+              onClick={() => setMode("pick")}
+              disabled={creating}
+              className="px-3 py-1.5 text-[11px] font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 transition"
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

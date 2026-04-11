@@ -45,6 +45,8 @@ export function PageViewer({
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [tagInputValue, setTagInputValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -62,6 +64,8 @@ export function PageViewer({
       setExpandedAssocId(null);
       setEditTitle("");
       setEditContent("");
+      setEditTags([]);
+      setTagInputValue("");
       setEditing(true);
       setSaveError(null);
       return;
@@ -147,8 +151,23 @@ export function PageViewer({
     if (!data) return;
     setEditTitle(data.page.frontmatter.title);
     setEditContent(data.page.content);
+    setEditTags(data.page.frontmatter.tags ?? []);
+    setTagInputValue("");
     setSaveError(null);
     setEditing(true);
+  };
+
+  const addTagFromInput = () => {
+    const trimmed = tagInputValue.trim().toLowerCase();
+    if (!trimmed) return;
+    if (!editTags.includes(trimmed)) {
+      setEditTags([...editTags, trimmed]);
+    }
+    setTagInputValue("");
+  };
+
+  const removeTag = (tag: string) => {
+    setEditTags(editTags.filter((t) => t !== tag));
   };
 
   const cancelEditing = () => {
@@ -178,6 +197,7 @@ export function PageViewer({
           body: JSON.stringify({
             title: editTitle,
             content: editContent,
+            tags: editTags,
           }),
         }
       );
@@ -292,6 +312,54 @@ export function PageViewer({
                   onChange={(e) => setEditTitle(e.target.value)}
                   className="w-full px-3 py-2 text-2xl font-semibold tracking-tight rounded-md border border-zinc-200 bg-white text-zinc-900 focus:outline-none focus:border-zinc-400"
                 />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-[10px] uppercase tracking-wider text-zinc-500">
+                  Tags
+                </label>
+                <div className="flex flex-wrap items-center gap-1.5 px-2 py-2 rounded-md border border-zinc-200 bg-white min-h-[36px]">
+                  {editTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[11px]"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        className="text-zinc-400 hover:text-zinc-900 leading-none"
+                        aria-label={`Remove ${tag}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type="text"
+                    value={tagInputValue}
+                    onChange={(e) => setTagInputValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        addTagFromInput();
+                      } else if (
+                        e.key === "Backspace" &&
+                        tagInputValue === "" &&
+                        editTags.length > 0
+                      ) {
+                        e.preventDefault();
+                        setEditTags(editTags.slice(0, -1));
+                      }
+                    }}
+                    onBlur={() => addTagFromInput()}
+                    placeholder={editTags.length === 0 ? "Add tags…" : ""}
+                    className="flex-1 min-w-[80px] text-xs bg-transparent focus:outline-none text-zinc-900 placeholder-zinc-400"
+                  />
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Press Enter or comma to add. Backspace on an empty input
+                  removes the last tag.
+                </p>
               </div>
               <div className="space-y-2">
                 <label className="block text-[10px] uppercase tracking-wider text-zinc-500">
