@@ -34,7 +34,27 @@ export function initDb(): Database.Database {
   );
   db.exec(schema);
 
+  // Migrations for existing databases (CREATE TABLE IF NOT EXISTS doesn't
+  // add new columns to existing tables)
+  runMigrations(db);
+
   return db;
+}
+
+function runMigrations(db: Database.Database) {
+  // memory_sources.blocked
+  if (!hasColumn(db, "memory_sources", "blocked")) {
+    db.exec(
+      "ALTER TABLE memory_sources ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+}
+
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string;
+  }>;
+  return rows.some((r) => r.name === column);
 }
 
 export function closeDb(): void {

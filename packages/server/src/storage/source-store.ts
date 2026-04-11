@@ -118,6 +118,53 @@ export class SourceStore {
       .get(externalSource, externalId) as any;
     return row ? rowToSource(row) : null;
   }
+
+  /**
+   * Check if a source with the given upstream identifier has been blocked
+   * (e.g. because the user deleted the page it produced and doesn't want
+   * it re-imported on the next sync).
+   */
+  isBlockedExternal(externalSource: string, externalId: string): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT blocked FROM memory_sources WHERE external_source = ? AND external_id = ?"
+      )
+      .get(externalSource, externalId) as { blocked: number } | undefined;
+    return row ? Boolean(row.blocked) : false;
+  }
+
+  /** Mark a single source as blocked. Future ingestion will skip it. */
+  blockSource(id: string): void {
+    this.db.prepare("UPDATE memory_sources SET blocked = 1 WHERE id = ?").run(id);
+  }
+
+  /** Unblock a source so it can be ingested again on next sync */
+  unblockSource(id: string): void {
+    this.db.prepare("UPDATE memory_sources SET blocked = 0 WHERE id = ?").run(id);
+  }
+
+  /**
+   * Block every source memory linked to a page. Returns the number of
+   * sources that were blocked. Used by the page-delete flow so the
+   * deleted content doesn't reappear on the next connector sync.
+   */
+  blockSourcesForPage(pageId: string): number {
+    const sources = this.getPageSources(pageId);
+    for (const s of sources) {
+      this.blockSource(s.id);
+    }
+    return sources.length;
+  }
+
+  /** List blocked sources (for a future "blocked items" UI) */
+  listBlocked(): MemorySource[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM memory_sources WHERE blocked = 1 ORDER BY ingested_at DESC"
+      )
+      .all() as any[];
+    return rows.map(rowToSource);
+  }
 }
 
 function rowToSource(row: any): MemorySource {

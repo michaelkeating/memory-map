@@ -5,6 +5,7 @@ import type { LinkIndex } from "../engine/link-index.js";
 import type { ProfileService } from "../llm/profile-service.js";
 import type { GraphService } from "../engine/graph-service.js";
 import type { WebSocketHub } from "../ws/hub.js";
+import type { SourceStore } from "../storage/source-store.js";
 
 export function registerPageRoutes(
   app: FastifyInstance,
@@ -13,7 +14,8 @@ export function registerPageRoutes(
   linkIndex: LinkIndex,
   profileService: ProfileService,
   graphService: GraphService,
-  wsHub: WebSocketHub
+  wsHub: WebSocketHub,
+  sourceStore: SourceStore
 ) {
   // List all pages
   app.get("/api/pages", async () => {
@@ -98,11 +100,30 @@ export function registerPageRoutes(
     return associationStore.getForPage(request.params.id);
   });
 
-  // Delete a page
-  app.delete<{ Params: { id: string } }>("/api/pages/:id", async (request, reply) => {
-    const deleted = pageStore.delete(request.params.id);
+  // Delete a page. By default this also blocks the source memories that
+  // contributed to it so the next connector sync won't re-create it.
+  // Pass ?keepSources=true to skip the cascade-block.
+  app.delete<{
+    Params: { id: string };
+    Querystring: { keepSources?: string };
+  }>("/api/pages/:id", async (request, reply) => {
+    const { id } = request.params;
+
+    // Block sources BEFORE deleting (we need page_sources rows to find them)
+    let blockedSources = 0;
+    if (request.query.keepSources !== "true") {
+      blockedSources = sourceStore.blockSourcesForPage(id);
+    }
+
+    const deleted = pageStore.delete(id);
     if (!deleted) return reply.code(404).send({ error: "Page not found" });
-    return { ok: true };
+
+    // Notify clients
+    wsHub.broadcast({ type: "page:deleted", pageId: id });
+    const graph = graphService.getFullGraph();
+    wsHub.broadcast({ type: "graph:full", graph });
+
+    return { ok: true, blockedSources };
   });
 
   // Search

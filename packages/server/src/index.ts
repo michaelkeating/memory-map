@@ -88,7 +88,8 @@ async function main() {
     associationStore,
     linkIndex,
     wsHub,
-    profileService
+    profileService,
+    sourceStore
   );
 
   // Initialize connectors
@@ -125,7 +126,8 @@ async function main() {
     linkIndex,
     profileService,
     graphService,
-    wsHub
+    wsHub,
+    sourceStore
   );
   registerGraphRoutes(app, graphService);
   registerConnectorRoutes(app, connectorStore, connectorRunner);

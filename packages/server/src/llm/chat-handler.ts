@@ -5,6 +5,7 @@ import type { AssociationStore } from "../storage/association-store.js";
 import type { LinkIndex } from "../engine/link-index.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { ProfileService } from "./profile-service.js";
+import type { SourceStore } from "../storage/source-store.js";
 
 const SYSTEM_PROMPT = `You are the conversational interface to **Memory Map**, the user's personal knowledge graph. Memory Map turns captured observations (from Screenpipe, Notion, Google Drive, chat input) into pages and connections.
 
@@ -216,7 +217,8 @@ export class ChatHandler {
     private associationStore: AssociationStore,
     private linkIndex: LinkIndex,
     private wsHub: WebSocketHub,
-    private profileService: ProfileService
+    private profileService: ProfileService,
+    private sourceStore: SourceStore
   ) {}
 
   async chat(
@@ -453,9 +455,15 @@ export class ChatHandler {
       case "delete_page": {
         const id = this.resolveIdentifier(String(input.identifier ?? ""));
         if (!id) return { result: { error: "Page not found" }, surfacedIds: [], touchedIds: [] };
+        // Block source memories first so they don't get re-imported
+        const blockedCount = this.sourceStore.blockSourcesForPage(id);
         const ok = this.pageStore.delete(id);
         if (ok) this.wsHub.broadcast({ type: "page:deleted", pageId: id });
-        return { result: { ok }, surfacedIds: [], touchedIds: [] };
+        return {
+          result: { ok, blockedSources: blockedCount },
+          surfacedIds: [],
+          touchedIds: [],
+        };
       }
 
       case "create_association": {

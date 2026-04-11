@@ -217,8 +217,25 @@ export class AutoOrganizer {
    * provenance tracking. Records the source memory and tags every page
    * and association produced with the source ID so the user can later
    * see exactly where each piece of knowledge came from.
+   *
+   * If the source has been previously blocked (e.g. the user deleted
+   * the page it produced and doesn't want it re-imported), this returns
+   * an empty operations result without making any LLM call.
    */
   async ingest(input: IngestionSource): Promise<OrganizerOperations> {
+    // Skip blocked sources entirely — no LLM call, no DB writes
+    if (this.sourceStore.isBlockedExternal(input.externalSource, input.externalId)) {
+      console.log(
+        `[ingest] skipping blocked source ${input.externalSource}/${input.externalId}`
+      );
+      return {
+        createPages: [],
+        updatePages: [],
+        createAssociations: [],
+        updateAssociations: [],
+      };
+    }
+
     // Record the source memory first so we have an ID to tag operations with
     const source = this.sourceStore.recordSource(input);
 

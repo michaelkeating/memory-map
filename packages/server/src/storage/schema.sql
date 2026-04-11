@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS memory_sources (
   tags            TEXT NOT NULL DEFAULT '[]',
   importance      REAL,
   captured_at     TEXT NOT NULL,             -- when the upstream system captured it
-  ingested_at     TEXT NOT NULL              -- when we processed it
+  ingested_at     TEXT NOT NULL,             -- when we processed it
+  blocked         INTEGER NOT NULL DEFAULT 0 -- if 1, ingestion skips this source
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_sources_external

@@ -179,6 +179,27 @@ export function PageViewer({
     setSaveError(null);
   };
 
+  const handleDelete = async () => {
+    if (!pageId || !data) return;
+    const title = data.page.frontmatter.title;
+    const confirmed = window.confirm(
+      `Delete "${title}"?\n\nThis also blocks the source memories that contributed to it so they won't be re-imported on the next sync.\n\nThis can't be undone from the UI (you'd have to manually unblock the sources).`
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(`/api/pages/${pageId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        alert(json.error ?? "Delete failed");
+        return;
+      }
+      // Close the panel — the WebSocket will refresh the graph
+      onClose();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Delete failed");
+    }
+  };
+
   const saveEdit = async () => {
     if (!editTitle.trim()) {
       setSaveError("Title is required");
@@ -255,13 +276,22 @@ export function PageViewer({
           </div>
           <div className="flex items-center gap-2">
             {pageId && data && !editing && !draftMode && (
-              <button
-                onClick={startEditing}
-                className="text-xs px-2.5 py-1 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
-                title="Edit this page"
-              >
-                Edit
-              </button>
+              <>
+                <button
+                  onClick={startEditing}
+                  className="text-xs px-2.5 py-1 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+                  title="Edit this page"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="text-xs px-2.5 py-1 rounded-md border border-zinc-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 transition"
+                  title="Delete this page (and block its sources)"
+                >
+                  Delete
+                </button>
+              </>
             )}
             {pageId && !draftMode && (
               <button
