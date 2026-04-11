@@ -493,6 +493,11 @@ export class GoogleDriveConnector implements Connector {
         "fields",
         "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink,owners)"
       );
+      // Required for service accounts that need to see files shared
+      // from outside their own (empty) Drive. Safe to set on every
+      // request.
+      url.searchParams.set("supportsAllDrives", "true");
+      url.searchParams.set("includeItemsFromAllDrives", "true");
       if (pageToken) url.searchParams.set("pageToken", pageToken);
 
       const res = await fetch(url.toString(), {
@@ -500,6 +505,11 @@ export class GoogleDriveConnector implements Connector {
       });
       if (!res.ok) {
         const text = await res.text();
+        // Log the URL we sent (without the bearer token) so we can debug
+        // 404s and similar weirdness from the Drive API
+        console.error(
+          `[google-drive] list failed: ${res.status}\n  url: ${url.toString()}\n  body: ${text.slice(0, 500)}`
+        );
         throw new Error(`Drive list failed: ${res.status} ${text.slice(0, 300)}`);
       }
       const json = (await res.json()) as DriveFileListResponse;
@@ -524,6 +534,7 @@ export class GoogleDriveConnector implements Connector {
   private async exportDocAsMarkdown(accessToken: string, fileId: string): Promise<string> {
     const url = new URL(`https://www.googleapis.com/drive/v3/files/${fileId}/export`);
     url.searchParams.set("mimeType", "text/markdown");
+    url.searchParams.set("supportsAllDrives", "true");
     const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
