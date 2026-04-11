@@ -82,6 +82,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const labelsVisibleRef = useRef<boolean>(true);
   const focusedIdsRef = useRef<Set<string>>(new Set());
   const activePageIdRef = useRef<string | null>(null);
+  /** Last time the user wheeled — used to pause focus tracking briefly */
+  const lastWheelTimeRef = useRef<number>(0);
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
   const [labelsVisible, setLabelsVisible] = useState<boolean>(true);
 
@@ -113,16 +115,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
   useEffect(() => {
     focusedIdsRef.current = focusedIds;
-    if (focusedIds.size > 0 && simRef.current) {
-      simRef.current.alpha(0.15).restart();
-    }
   }, [focusedIds]);
 
   useEffect(() => {
     activePageIdRef.current = activePageId;
-    if (activePageId && simRef.current) {
-      simRef.current.alpha(0.15).restart();
-    }
   }, [activePageId]);
 
   // Build adjacency map for hover highlighting
@@ -231,6 +227,71 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       const h = canvas.height;
       const s = styleRef.current;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // ── Continuous viewport tracking for focused nodes ──
+      // If chat focus or an open page is set, gently lerp the viewport
+      // toward fitting those nodes in the panel. Pause when the user is
+      // actively interacting so we don't fight them.
+      {
+        const focusSeed = new Set<string>();
+        for (const id of focusedIdsRef.current) focusSeed.add(id);
+        if (activePageIdRef.current) focusSeed.add(activePageIdRef.current);
+
+        const userInteracting =
+          panningRef.current !== null ||
+          draggingRef.current !== null ||
+          touchSessionRef.current !== null ||
+          Date.now() - lastWheelTimeRef.current < 800;
+
+        if (focusSeed.size > 0 && !userInteracting) {
+          const screenW = w / dpr;
+          const screenH = h / dpr;
+
+          // Collect focused nodes that have valid positions
+          const focusedNodes: SimNode[] = [];
+          for (const node of nodesRef.current) {
+            if (focusSeed.has(node.id) && node.x != null && node.y != null) {
+              focusedNodes.push(node);
+            }
+          }
+
+          if (focusedNodes.length > 0) {
+            // Compute bounding box in graph space
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+            for (const node of focusedNodes) {
+              if (node.x! < minX) minX = node.x!;
+              if (node.x! > maxX) maxX = node.x!;
+              if (node.y! < minY) minY = node.y!;
+              if (node.y! > maxY) maxY = node.y!;
+            }
+            // Pad and minimum size for single-node case
+            const padding = 80;
+            const minSize = 200;
+            const bboxW = Math.max(maxX - minX + padding * 2, minSize);
+            const bboxH = Math.max(maxY - minY + padding * 2, minSize);
+            const bboxCx = (minX + maxX) / 2;
+            const bboxCy = (minY + maxY) / 2;
+
+            // Target scale to fit bbox into the panel
+            const fitScale = Math.min(screenW / bboxW, screenH / bboxH);
+            const targetScale = Math.max(0.4, Math.min(1.8, fitScale));
+
+            // Target pan so the bbox center is the panel center
+            const targetX = screenW / 2 - bboxCx * targetScale;
+            const targetY = screenH / 2 - bboxCy * targetScale;
+
+            // Lerp current viewport toward target
+            const vpRef = viewportRef.current;
+            const lerp = 0.08;
+            vpRef.x += (targetX - vpRef.x) * lerp;
+            vpRef.y += (targetY - vpRef.y) * lerp;
+            vpRef.scale += (targetScale - vpRef.scale) * lerp;
+          }
+        }
+      }
 
       // Background fill
       ctx.fillStyle = s.background;
@@ -720,6 +781,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const handleWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {
       e.preventDefault();
+      lastWheelTimeRef.current = Date.now();
       const { x: gx, y: gy } = toGraphCoords(e.clientX, e.clientY);
       const vp = viewportRef.current;
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
