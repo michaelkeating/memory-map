@@ -479,8 +479,9 @@ export class GoogleDriveConnector implements Connector {
       "mimeType='application/vnd.google-apps.document'",
       "trashed=false",
     ];
-    if (config.folderFilter) {
-      queryParts.push(`'${config.folderFilter}' in parents`);
+    const folderId = sanitizeFolderId(config.folderFilter);
+    if (folderId) {
+      queryParts.push(`'${folderId}' in parents`);
     }
     const q = queryParts.join(" and ");
 
@@ -565,4 +566,23 @@ function base64url(input: Buffer): string {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+}
+
+/**
+ * Accept either a raw folder ID or a Drive folder URL and return just
+ * the ID. Strips URL prefixes, query strings (resourcekey, usp, etc.),
+ * and any whitespace. Drive folder IDs are alphanumeric with dashes
+ * and underscores — anything else is noise we can drop.
+ */
+function sanitizeFolderId(input: string | undefined): string {
+  if (!input) return "";
+  let id = input.trim();
+  // Pull the ID out of a full Drive URL if pasted as such
+  const urlMatch = id.match(/\/folders\/([^/?#]+)/);
+  if (urlMatch) {
+    id = urlMatch[1];
+  }
+  // Drop query string and hash (e.g. "?resourcekey=..." or "?usp=sharing")
+  id = id.split("?")[0].split("#")[0];
+  return id.trim();
 }
