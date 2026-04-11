@@ -6,6 +6,7 @@ import type { LinkIndex } from "../engine/link-index.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { ProfileService } from "./profile-service.js";
 import type { SourceStore } from "../storage/source-store.js";
+import type { EventLogStore } from "../storage/event-log-store.js";
 
 const SYSTEM_PROMPT = `You are the conversational interface to **Memory Map**, the user's personal knowledge graph. Memory Map turns captured observations (from Screenpipe, Notion, Google Drive, chat input) into pages and connections.
 
@@ -218,13 +219,19 @@ export class ChatHandler {
     private linkIndex: LinkIndex,
     private wsHub: WebSocketHub,
     private profileService: ProfileService,
-    private sourceStore: SourceStore
+    private sourceStore: SourceStore,
+    private eventLog: EventLogStore
   ) {}
 
   async chat(
     userMessage: string,
     history: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<ChatHandlerResult> {
+    // Log the user's question (this is one of the few events whose
+    // text is inherently content — handled in the log view with a
+    // per-row redact button + a "clear all chat queries" sweep)
+    this.eventLog.log({ type: "chat_query", text: userMessage });
+
     const messages: LLMMessage[] = history.map((m) => ({
       role: m.role,
       content: m.content,
@@ -406,6 +413,7 @@ export class ChatHandler {
         );
         this.linkIndex.updateForPage(page.frontmatter.id, page.links);
         this.wsHub.broadcast({ type: "page:created", page });
+        this.eventLog.log({ type: "page_create", pageId: page.frontmatter.id });
         return {
           result: {
             ok: true,
@@ -440,6 +448,7 @@ export class ChatHandler {
         if (!page) return { result: { error: "Update failed" }, surfacedIds: [], touchedIds: [] };
         this.linkIndex.updateForPage(id, page.links);
         this.wsHub.broadcast({ type: "page:updated", page });
+        this.eventLog.log({ type: "page_update", pageId: id });
         return {
           result: {
             ok: true,
@@ -458,7 +467,10 @@ export class ChatHandler {
         // Block source memories first so they don't get re-imported
         const blockedCount = this.sourceStore.blockSourcesForPage(id);
         const ok = this.pageStore.delete(id);
-        if (ok) this.wsHub.broadcast({ type: "page:deleted", pageId: id });
+        if (ok) {
+          this.wsHub.broadcast({ type: "page:deleted", pageId: id });
+          this.eventLog.log({ type: "page_delete", pageId: id });
+        }
         return {
           result: { ok, blockedSources: blockedCount },
           surfacedIds: [],

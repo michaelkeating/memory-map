@@ -6,6 +6,7 @@ import type { ProfileService } from "../llm/profile-service.js";
 import type { GraphService } from "../engine/graph-service.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { SourceStore } from "../storage/source-store.js";
+import type { EventLogStore } from "../storage/event-log-store.js";
 
 export function registerPageRoutes(
   app: FastifyInstance,
@@ -15,7 +16,8 @@ export function registerPageRoutes(
   profileService: ProfileService,
   graphService: GraphService,
   wsHub: WebSocketHub,
-  sourceStore: SourceStore
+  sourceStore: SourceStore,
+  eventLog: EventLogStore
 ) {
   // List all pages
   app.get("/api/pages", async () => {
@@ -49,6 +51,7 @@ export function registerPageRoutes(
     const graph = graphService.getFullGraph();
     wsHub.broadcast({ type: "graph:full", graph });
 
+    eventLog.log({ type: "page_create", pageId: page.frontmatter.id });
     return page;
   });
 
@@ -86,6 +89,7 @@ export function registerPageRoutes(
     const graph = graphService.getFullGraph();
     wsHub.broadcast({ type: "graph:full", graph });
 
+    eventLog.log({ type: "page_update", pageId: id });
     return page;
   });
 
@@ -139,6 +143,11 @@ export function registerPageRoutes(
     const graph = graphService.getFullGraph();
     wsHub.broadcast({ type: "graph:full", graph });
 
+    eventLog.log({
+      type: "page_delete",
+      pageId: id,
+      meta: { blockedSources, deletedSources },
+    });
     return { ok: true, blockedSources, deletedSources };
   });
 

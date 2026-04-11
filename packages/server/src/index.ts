@@ -27,7 +27,10 @@ import { GoogleDriveConnector } from "./connectors/google-drive.js";
 import { registerOAuthRoutes } from "./api/oauth.js";
 import { registerScreenpipeRoutes } from "./api/screenpipe.js";
 import { registerTagRoutes } from "./api/tags.js";
+import { registerLogRoutes } from "./api/log.js";
+import { registerLintRoutes } from "./api/lint.js";
 import { SourceStore } from "./storage/source-store.js";
+import { EventLogStore } from "./storage/event-log-store.js";
 import { ProfileService } from "./llm/profile-service.js";
 import { registerProfileRoutes } from "./api/profiles.js";
 
@@ -43,6 +46,7 @@ async function main() {
   const associationStore = new AssociationStore(db, pageStore);
   const chatStore = new ChatStore(db);
   const sourceStore = new SourceStore(db);
+  const eventLog = new EventLogStore(db);
 
   // Rebuild index from disk
   pageStore.rebuildIndex();
@@ -80,7 +84,8 @@ async function main() {
     linkIndex,
     wsHub,
     sourceStore,
-    profileService
+    profileService,
+    eventLog
   );
   const chatHandler = new ChatHandler(
     llm,
@@ -89,7 +94,8 @@ async function main() {
     linkIndex,
     wsHub,
     profileService,
-    sourceStore
+    sourceStore,
+    eventLog
   );
 
   // Initialize connectors
@@ -127,14 +133,17 @@ async function main() {
     profileService,
     graphService,
     wsHub,
-    sourceStore
+    sourceStore,
+    eventLog
   );
   registerGraphRoutes(app, graphService);
   registerConnectorRoutes(app, connectorStore, connectorRunner);
-  registerProfileRoutes(app, sourceStore, profileService, graphService, wsHub);
+  registerProfileRoutes(app, sourceStore, profileService, graphService, wsHub, eventLog);
   registerOAuthRoutes(app, connectorStore);
   registerScreenpipeRoutes(app, connectorStore, sourceStore, organizer, graphService, wsHub);
   registerTagRoutes(app, pageStore, linkIndex, graphService, wsHub, llm, profileService);
+  registerLogRoutes(app, eventLog, pageStore, sourceStore);
+  registerLintRoutes(app, pageStore, linkIndex, llm, eventLog);
 
   // Health check
   app.get("/api/health", async () => ({

@@ -124,6 +124,28 @@ CREATE TABLE IF NOT EXISTS page_profiles (
   stale         INTEGER NOT NULL DEFAULT 0
 );
 
+-- Event log: chronological record of meaningful events. Stores
+-- references to pages/sources, NOT content snippets, so deleting a
+-- page or source automatically scrubs the displayed value (the log
+-- view resolves IDs to current state at read time).
+CREATE TABLE IF NOT EXISTS event_log (
+  id          TEXT PRIMARY KEY,
+  type        TEXT NOT NULL,    -- "ingest", "page_create", "page_update",
+                                --  "page_delete", "source_delete",
+                                --  "source_block", "lint", "chat_query"
+  page_id     TEXT,             -- nullable reference (not enforced)
+  source_id   TEXT,             -- nullable reference (not enforced)
+  text        TEXT,             -- only for inherently-content events
+                                --  (chat_query, lint summary)
+  meta        TEXT,             -- JSON, for extras like counts
+  created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_log_created ON event_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(type);
+CREATE INDEX IF NOT EXISTS idx_event_log_page ON event_log(page_id);
+CREATE INDEX IF NOT EXISTS idx_event_log_source ON event_log(source_id);
+
 -- Connectors: external data sources
 CREATE TABLE IF NOT EXISTS connectors (
   id              TEXT PRIMARY KEY,

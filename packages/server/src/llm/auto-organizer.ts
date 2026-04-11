@@ -11,6 +11,7 @@ import type { LinkIndex } from "../engine/link-index.js";
 import type { WebSocketHub } from "../ws/hub.js";
 import type { SourceStore } from "../storage/source-store.js";
 import type { ProfileService } from "./profile-service.js";
+import type { EventLogStore } from "../storage/event-log-store.js";
 
 const INGEST_SYSTEM_PROMPT = `You are the intelligence layer of Memory Map, a personal knowledge graph.
 
@@ -190,7 +191,8 @@ export class AutoOrganizer {
     private linkIndex: LinkIndex,
     private wsHub: WebSocketHub,
     private sourceStore: SourceStore,
-    private profileService: ProfileService
+    private profileService: ProfileService,
+    private eventLog: EventLogStore
   ) {}
 
   async process(
@@ -238,6 +240,12 @@ export class AutoOrganizer {
 
     // Record the source memory first so we have an ID to tag operations with
     const source = this.sourceStore.recordSource(input);
+
+    // Log the ingest event (references the source — content is not duplicated)
+    this.eventLog.log({
+      type: "ingest",
+      sourceId: source.id,
+    });
 
     const context = this.buildContext(input.content.slice(0, 2000));
 
@@ -368,6 +376,7 @@ ${context}`;
       if (sourceId) {
         this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "created");
       }
+      this.eventLog.log({ type: "page_create", pageId: page.frontmatter.id });
       touchedPageIds.add(page.frontmatter.id);
     }
 
@@ -379,6 +388,7 @@ ${context}`;
         if (sourceId) {
           this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "updated");
         }
+        this.eventLog.log({ type: "page_update", pageId: page.frontmatter.id });
         touchedPageIds.add(page.frontmatter.id);
       }
     }

@@ -4,6 +4,8 @@ import { ChatPanel } from "./components/chat/ChatPanel.js";
 import { GraphCanvas } from "./components/graph/GraphCanvas.js";
 import { ConnectorsPanel } from "./components/connectors/ConnectorsPanel.js";
 import { PageViewer } from "./components/pages/PageViewer.js";
+import { LogPanel } from "./components/log/LogPanel.js";
+import { LintPanel } from "./components/log/LintPanel.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { useGraphStore } from "./hooks/useGraph.js";
 import { useIsMobile } from "./hooks/useMediaQuery.js";
@@ -15,6 +17,8 @@ export function App() {
   const { nodes, edges, setActivePageId: setGraphActivePageId } = useGraphStore();
   const isMobile = useIsMobile();
   const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [lintOpen, setLintOpen] = useState(false);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [pageViewOpen, setPageViewOpen] = useState(false);
   const [draftMode, setDraftMode] = useState(false);
@@ -72,6 +76,20 @@ export function App() {
             + New
           </button>
           <button
+            onClick={() => setLintOpen(true)}
+            className="hidden sm:inline-block text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+            title="Run a health check on the graph"
+          >
+            Lint
+          </button>
+          <button
+            onClick={() => setLogOpen(true)}
+            className="hidden sm:inline-block text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+            title="Recent activity"
+          >
+            Log
+          </button>
+          <button
             onClick={() => setConnectorsOpen(true)}
             className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
           >
@@ -81,6 +99,22 @@ export function App() {
       </header>
 
       <ConnectorsPanel open={connectorsOpen} onClose={() => setConnectorsOpen(false)} />
+      <LogPanel
+        open={logOpen}
+        onClose={() => setLogOpen(false)}
+        onOpenPage={(id) => {
+          openPage(id);
+          setLogOpen(false);
+        }}
+      />
+      <LintPanel
+        open={lintOpen}
+        onClose={() => setLintOpen(false)}
+        onOpenPage={(id) => {
+          openPage(id);
+          setLintOpen(false);
+        }}
+      />
 
       {isMobile ? (
         <>

@@ -3,13 +3,15 @@ import type { SourceStore } from "../storage/source-store.js";
 import type { ProfileService } from "../llm/profile-service.js";
 import type { GraphService } from "../engine/graph-service.js";
 import type { WebSocketHub } from "../ws/hub.js";
+import type { EventLogStore } from "../storage/event-log-store.js";
 
 export function registerProfileRoutes(
   app: FastifyInstance,
   sourceStore: SourceStore,
   profileService: ProfileService,
   graphService: GraphService,
-  wsHub: WebSocketHub
+  wsHub: WebSocketHub,
+  eventLog: EventLogStore
 ) {
   // List source memories that contributed to a page
   app.get<{ Params: { id: string } }>(
@@ -57,6 +59,7 @@ export function registerProfileRoutes(
       const graph = graphService.getFullGraph();
       wsHub.broadcast({ type: "graph:full", graph });
 
+      eventLog.log({ type: "source_delete", sourceId: id });
       return result;
     }
   );

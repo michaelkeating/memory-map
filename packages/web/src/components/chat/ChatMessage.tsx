@@ -1,3 +1,4 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useGraphStore } from "../../hooks/useGraph.js";
@@ -11,6 +12,8 @@ interface ChatMessageProps {
 export function ChatMessage({ role, content, onOpenPage }: ChatMessageProps) {
   const nodes = useGraphStore((s) => s.nodes);
   const isUser = role === "user";
+  const [savingPage, setSavingPage] = useState(false);
+  const [savedPageId, setSavedPageId] = useState<string | null>(null);
 
   if (isUser) {
     return (
@@ -21,6 +24,41 @@ export function ChatMessage({ role, content, onOpenPage }: ChatMessageProps) {
       </div>
     );
   }
+
+  const handleSaveAsPage = async () => {
+    // Default the title to the first line stripped of markdown
+    const firstLine =
+      content
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.length > 0) ?? "Saved chat answer";
+    const cleanFirst = firstLine
+      .replace(/^#+\s*/, "")
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .slice(0, 80);
+
+    const title = window.prompt("Save as page — title:", cleanFirst);
+    if (!title || !title.trim()) return;
+
+    setSavingPage(true);
+    try {
+      const res = await fetch("/api/pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), content }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        alert(json.error ?? "Save failed");
+        return;
+      }
+      setSavedPageId(json.frontmatter?.id ?? null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingPage(false);
+    }
+  };
 
   // Build resolver maps from the graph store
   const idByTitle = new Map<string, string>();
@@ -38,7 +76,7 @@ export function ChatMessage({ role, content, onOpenPage }: ChatMessageProps) {
     null;
 
   return (
-    <div className="flex justify-start">
+    <div className="flex justify-start group">
       <div className="max-w-[90%] text-zinc-800">
         <div className="prose-mm">
           <ReactMarkdown
@@ -54,6 +92,25 @@ export function ChatMessage({ role, content, onOpenPage }: ChatMessageProps) {
           >
             {content}
           </ReactMarkdown>
+        </div>
+        <div className="mt-1 flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+          {savedPageId ? (
+            <button
+              onClick={() => onOpenPage(savedPageId)}
+              className="text-[10px] text-emerald-700 hover:underline underline-offset-2"
+            >
+              Saved as page · open
+            </button>
+          ) : (
+            <button
+              onClick={handleSaveAsPage}
+              disabled={savingPage}
+              className="text-[10px] text-zinc-400 hover:text-zinc-700 transition disabled:opacity-50"
+              title="Save this answer as a page in the graph"
+            >
+              {savingPage ? "Saving…" : "Save as page"}
+            </button>
+          )}
         </div>
       </div>
     </div>
