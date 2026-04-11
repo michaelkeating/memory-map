@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { ChatPanel } from "./components/chat/ChatPanel.js";
 import { GraphCanvas } from "./components/graph/GraphCanvas.js";
@@ -12,13 +12,20 @@ type MobileTab = "chat" | "graph" | "page";
 
 export function App() {
   useWebSocket();
-  const { nodes, edges } = useGraphStore();
+  const { nodes, edges, setActivePageId: setGraphActivePageId } = useGraphStore();
   const isMobile = useIsMobile();
   const [connectorsOpen, setConnectorsOpen] = useState(false);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [pageViewOpen, setPageViewOpen] = useState(false);
   const [draftMode, setDraftMode] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("graph");
+
+  // Mirror the local activePageId into the graph store so the canvas can
+  // highlight the open page in addition to whatever the chat surfaced.
+  // Clear the store value when the page panel is closed.
+  useEffect(() => {
+    setGraphActivePageId(pageViewOpen ? activePageId : null);
+  }, [activePageId, pageViewOpen, setGraphActivePageId]);
 
   const openPage = (id: string) => {
     setActivePageId(id);

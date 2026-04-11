@@ -81,6 +81,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const roughRef = useRef<RoughCanvas | null>(null);
   const labelsVisibleRef = useRef<boolean>(true);
   const focusedIdsRef = useRef<Set<string>>(new Set());
+  const activePageIdRef = useRef<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
   const [labelsVisible, setLabelsVisible] = useState<boolean>(true);
 
@@ -93,6 +94,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     graphStyleId,
     setGraphStyle,
     focusedIds,
+    activePageId,
     clearFocus,
   } = useGraphStore();
 
@@ -111,12 +113,17 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
   useEffect(() => {
     focusedIdsRef.current = focusedIds;
-    // When new focus arrives, gently re-heat the simulation so positions
-    // settle around the focused nodes (they'll appear more central).
     if (focusedIds.size > 0 && simRef.current) {
       simRef.current.alpha(0.15).restart();
     }
   }, [focusedIds]);
+
+  useEffect(() => {
+    activePageIdRef.current = activePageId;
+    if (activePageId && simRef.current) {
+      simRef.current.alpha(0.15).restart();
+    }
+  }, [activePageId]);
 
   // Build adjacency map for hover highlighting
   useEffect(() => {
@@ -292,18 +299,25 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
       // Determine highlight set:
       // - hover takes priority (1st-degree neighborhood)
-      // - else focused IDs from chat (focused + their 1st-degree neighbors)
+      // - else: union of (chat-focused IDs) + (active page ID) plus
+      //   their 1st-degree neighbors
       // - else null (everything full opacity)
       let highlightSet: Set<string> | null = null;
       if (hoveredId) {
         highlightSet = new Set([hoveredId]);
         const neighbors = adj.get(hoveredId);
         if (neighbors) for (const n of neighbors) highlightSet.add(n);
-      } else if (focusedIdsRef.current.size > 0) {
-        highlightSet = new Set(focusedIdsRef.current);
-        for (const fid of focusedIdsRef.current) {
-          const neighbors = adj.get(fid);
-          if (neighbors) for (const n of neighbors) highlightSet.add(n);
+      } else {
+        const focusSeed = new Set<string>();
+        for (const id of focusedIdsRef.current) focusSeed.add(id);
+        if (activePageIdRef.current) focusSeed.add(activePageIdRef.current);
+
+        if (focusSeed.size > 0) {
+          highlightSet = new Set(focusSeed);
+          for (const fid of focusSeed) {
+            const neighbors = adj.get(fid);
+            if (neighbors) for (const n of neighbors) highlightSet.add(n);
+          }
         }
       }
 
@@ -954,14 +968,16 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         </div>
       )}
 
-      {/* Focus indicator (from chat) */}
+      {/* Chat-focus indicator */}
       {focusedIds.size > 0 && !hoveredNode && (
         <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-100/95 backdrop-blur border border-amber-300 text-[11px] text-amber-900 shadow-sm">
-          <span>Focused on {focusedIds.size} page{focusedIds.size === 1 ? "" : "s"}</span>
+          <span>
+            Chat focus: {focusedIds.size} page{focusedIds.size === 1 ? "" : "s"}
+          </span>
           <button
             onClick={clearFocus}
             className="text-amber-700 hover:text-amber-900 text-base leading-none"
-            title="Clear focus"
+            title="Clear chat focus"
           >
             ×
           </button>

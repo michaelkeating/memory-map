@@ -12,8 +12,10 @@ interface GraphStore {
   edges: GraphEdge[];
   freshNodes: Set<string>;
   pinnedIds: Set<string>;
-  /** Page IDs the chat surfaced — graph highlights these and dims the rest */
+  /** Pages the chat surfaced in its last response */
   focusedIds: Set<string>;
+  /** The page currently open in the side panel — also gets highlighted */
+  activePageId: string | null;
   graphStyleId: string;
 
   setGraph: (g: GraphData) => void;
@@ -27,6 +29,7 @@ interface GraphStore {
   setGraphStyle: (id: string) => void;
   setFocusedIds: (ids: string[]) => void;
   clearFocus: () => void;
+  setActivePageId: (id: string | null) => void;
 }
 
 export const useGraphStore = create<GraphStore>((set) => ({
@@ -35,6 +38,7 @@ export const useGraphStore = create<GraphStore>((set) => ({
   freshNodes: new Set(),
   pinnedIds: new Set(),
   focusedIds: new Set(),
+  activePageId: null,
   graphStyleId: "clean",
 
   setGraph: (g) => set({ nodes: g.nodes, edges: g.edges }),
@@ -43,6 +47,7 @@ export const useGraphStore = create<GraphStore>((set) => ({
 
   setFocusedIds: (ids) => set({ focusedIds: new Set(ids) }),
   clearFocus: () => set({ focusedIds: new Set() }),
+  setActivePageId: (id) => set({ activePageId: id }),
 
   pin: (id) =>
     set((state) => {
