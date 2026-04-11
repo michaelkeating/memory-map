@@ -2,12 +2,18 @@ import type { FastifyInstance } from "fastify";
 import type { PageStore } from "../storage/page-store.js";
 import type { AssociationStore } from "../storage/association-store.js";
 import type { LinkIndex } from "../engine/link-index.js";
+import type { ProfileService } from "../llm/profile-service.js";
+import type { GraphService } from "../engine/graph-service.js";
+import type { WebSocketHub } from "../ws/hub.js";
 
 export function registerPageRoutes(
   app: FastifyInstance,
   pageStore: PageStore,
   associationStore: AssociationStore,
-  linkIndex: LinkIndex
+  linkIndex: LinkIndex,
+  profileService: ProfileService,
+  graphService: GraphService,
+  wsHub: WebSocketHub
 ) {
   // List all pages
   app.get("/api/pages", async () => {
@@ -22,6 +28,31 @@ export function registerPageRoutes(
     // Populate backlinks
     const backlinkIds = linkIndex.getBacklinks(request.params.id);
     page.backlinks = backlinkIds;
+
+    return page;
+  });
+
+  // Update a page (user-driven edit)
+  app.put<{
+    Params: { id: string };
+    Body: { title?: string; content?: string; tags?: string[] };
+  }>("/api/pages/:id", async (request, reply) => {
+    const { id } = request.params;
+    const page = pageStore.updateById(id, request.body ?? {});
+    if (!page) return reply.code(404).send({ error: "Page not found" });
+
+    // Re-parse wikilinks and update the link index
+    linkIndex.updateForPage(id, page.links);
+
+    // Profile is no longer current
+    profileService.markStale(id);
+
+    // Notify clients
+    wsHub.broadcast({ type: "page:updated", page });
+
+    // Push the new graph (link index changes affect edges)
+    const graph = graphService.getFullGraph();
+    wsHub.broadcast({ type: "graph:full", graph });
 
     return page;
   });

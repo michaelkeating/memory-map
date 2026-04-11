@@ -108,7 +108,15 @@ async function main() {
 
   // API routes
   registerChatRoutes(app, organizer, chatStore, graphService, wsHub);
-  registerPageRoutes(app, pageStore, associationStore, linkIndex);
+  registerPageRoutes(
+    app,
+    pageStore,
+    associationStore,
+    linkIndex,
+    profileService,
+    graphService,
+    wsHub
+  );
   registerGraphRoutes(app, graphService);
   registerConnectorRoutes(app, connectorStore, connectorRunner);
   registerProfileRoutes(app, sourceStore, profileService);

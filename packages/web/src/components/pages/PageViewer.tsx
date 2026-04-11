@@ -32,6 +32,14 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [assocSources, setAssocSources] = useState<AssociationSourcesMap>({});
   const [expandedAssocId, setExpandedAssocId] = useState<string | null>(null);
+
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const nodes = useGraphStore((s) => s.nodes);
   const pinnedIds = useGraphStore((s) => s.pinnedIds);
   const togglePin = useGraphStore((s) => s.togglePin);
@@ -43,12 +51,16 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
       setProfile(null);
       setAssocSources({});
       setExpandedAssocId(null);
+      setEditing(false);
+      setSaveError(null);
       return;
     }
     setLoading(true);
     setProfileError(null);
     setExpandedAssocId(null);
     setAssocSources({});
+    setEditing(false);
+    setSaveError(null);
     Promise.all([
       fetch(`/api/pages/${pageId}`).then((r) => r.json()),
       fetch(`/api/pages/${pageId}/backlinks`).then((r) => r.json()),
@@ -111,6 +123,53 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
     }
   };
 
+  const startEditing = () => {
+    if (!data) return;
+    setEditTitle(data.page.frontmatter.title);
+    setEditContent(data.page.content);
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setEditing(false);
+    setSaveError(null);
+  };
+
+  const saveEdit = async () => {
+    if (!pageId) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/pages/${pageId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle,
+          content: editContent,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        setSaveError(json.error ?? "Save failed");
+        return;
+      }
+      // Update local data with the saved page
+      setData((prev) =>
+        prev ? { ...prev, page: json } : prev
+      );
+      // Profile is now stale; clear it so the user can regenerate
+      setProfile((prev) =>
+        prev ? { ...prev, stale: true } : prev
+      );
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Build title→id and slug→id maps for resolving wikilinks
   const idByTitle = new Map<string, string>();
   const idByLowerTitle = new Map<string, string>();
@@ -141,6 +200,15 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
             <span className="text-xs uppercase tracking-wider text-zinc-400">Page</span>
           </div>
           <div className="flex items-center gap-2">
+            {pageId && data && !editing && (
+              <button
+                onClick={startEditing}
+                className="text-xs px-2.5 py-1 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+                title="Edit this page"
+              >
+                Edit
+              </button>
+            )}
             {pageId && (
               <button
                 onClick={() => togglePin(pageId)}
@@ -171,7 +239,56 @@ export function PageViewer({ pageId, onClose, onNavigate }: PageViewerProps) {
           {!loading && !data && (
             <div className="p-6 text-sm text-zinc-400">Page not found.</div>
           )}
-          {data && (
+          {data && editing && (
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="block text-[10px] uppercase tracking-wider text-zinc-500">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2 text-2xl font-semibold tracking-tight rounded-md border border-zinc-200 bg-white text-zinc-900 focus:outline-none focus:border-zinc-400"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-[10px] uppercase tracking-wider text-zinc-500">
+                  Content (Markdown)
+                </label>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  rows={20}
+                  className="w-full px-3 py-2 text-sm font-mono rounded-md border border-zinc-200 bg-white text-zinc-900 focus:outline-none focus:border-zinc-400 resize-y leading-relaxed"
+                  placeholder="Markdown content with [[Wikilinks]] to other pages..."
+                />
+                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                  Use <code className="bg-zinc-100 px-1 py-0.5 rounded">[[Page Title]]</code> to link to other pages. Saving will re-parse links and mark the synthesized profile as stale.
+                </p>
+              </div>
+              {saveError && (
+                <p className="text-xs text-red-600">{saveError}</p>
+              )}
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  onClick={saveEdit}
+                  disabled={saving}
+                  className="px-4 py-2 text-xs font-medium rounded-md bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 transition"
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={cancelEditing}
+                  disabled={saving}
+                  className="px-4 py-2 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {data && !editing && (
             <div className="p-6 space-y-6">
               <header className="space-y-2">
                 <h1 className="text-2xl font-semibold text-zinc-900 tracking-tight">

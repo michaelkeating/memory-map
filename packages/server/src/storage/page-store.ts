@@ -143,6 +143,89 @@ export class PageStore {
     return this.getBySlug(row.slug);
   }
 
+  /**
+   * Update a page by ID. User-driven edits go through this. Supports
+   * changing the title (which may require renaming the file), the
+   * markdown content, or the tags. Pass undefined to leave a field
+   * unchanged.
+   */
+  updateById(
+    id: string,
+    edits: { title?: string; content?: string; tags?: string[] }
+  ): Page | null {
+    const row = this.db
+      .prepare("SELECT slug FROM pages WHERE id = ?")
+      .get(id) as { slug: string } | undefined;
+    if (!row) return null;
+
+    const oldFilePath = path.join(getPagesDir(), `${row.slug}.md`);
+    if (!fs.existsSync(oldFilePath)) return null;
+
+    const raw = fs.readFileSync(oldFilePath, "utf-8");
+    const parsed = matter(raw);
+    const fm = parsed.data as PageFrontmatter;
+
+    // Title change → may require a slug rename
+    let newSlug = row.slug;
+    if (edits.title !== undefined && edits.title.trim() !== "" && edits.title !== fm.title) {
+      fm.title = edits.title.trim();
+      const desiredSlug = slugify(fm.title);
+      if (desiredSlug && desiredSlug !== row.slug) {
+        // Check for collision
+        const collision = this.db
+          .prepare("SELECT id FROM pages WHERE slug = ? AND id != ?")
+          .get(desiredSlug, id) as { id: string } | undefined;
+        newSlug = collision
+          ? `${desiredSlug}-${id.slice(-6).toLowerCase()}`
+          : desiredSlug;
+      }
+    }
+
+    if (edits.tags !== undefined) {
+      fm.tags = edits.tags;
+    }
+
+    const newContent =
+      edits.content !== undefined ? edits.content : parsed.content;
+
+    const now = new Date().toISOString();
+    fm.modified = now;
+
+    // Write to new file path (may be the same as old)
+    const newFilePath = path.join(getPagesDir(), `${newSlug}.md`);
+    const fileContent = matter.stringify(newContent, fm);
+    fs.writeFileSync(newFilePath, fileContent, "utf-8");
+
+    // If slug changed, remove the old file
+    if (newSlug !== row.slug && fs.existsSync(oldFilePath)) {
+      fs.unlinkSync(oldFilePath);
+    }
+
+    // Update SQLite index
+    this.db
+      .prepare(
+        "UPDATE pages SET slug = ?, title = ?, tags = ?, modified_at = ? WHERE id = ?"
+      )
+      .run(newSlug, fm.title, JSON.stringify(fm.tags), now, id);
+
+    // Update FTS
+    this.db
+      .prepare(
+        `UPDATE pages_fts SET title = ?, content = ?, tags = ?
+         WHERE rowid = (SELECT rowid FROM pages WHERE id = ?)`
+      )
+      .run(fm.title, newContent, fm.tags.join(" "), id);
+
+    const links = extractWikilinks(newContent);
+    return {
+      frontmatter: fm,
+      content: newContent,
+      slug: newSlug,
+      links,
+      backlinks: [],
+    };
+  }
+
   /** Get a page by slug */
   getBySlug(slug: string): Page | null {
     const filePath = path.join(getPagesDir(), `${slug}.md`);
