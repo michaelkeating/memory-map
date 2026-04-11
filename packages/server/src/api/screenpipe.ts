@@ -218,8 +218,8 @@ export function registerScreenpipeRoutes(
   app.get("/api/screenpipe/sources", async (_request, reply) => {
     const baseUrl = getBaseUrl();
     try {
-      // No dedicated endpoint — sample 200 recent and dedupe
-      const res = await fetch(`${baseUrl}/memories?limit=200&order_by=created_at&order_dir=desc`);
+      // No dedicated endpoint — sample 500 recent and dedupe
+      const res = await fetch(`${baseUrl}/memories?limit=500&order_by=created_at&order_dir=desc`);
       if (!res.ok) {
         return reply.code(502).send({ error: `Screenpipe error: ${res.status}` });
       }
@@ -241,6 +241,93 @@ export function registerScreenpipeRoutes(
       });
     }
   });
+
+  /**
+   * Source-tag tree: each source with the distinct tags that have ever
+   * appeared on memories from that source. Powers the Export Rules UI.
+   */
+  app.get("/api/screenpipe/source-tag-tree", async (_request, reply) => {
+    const baseUrl = getBaseUrl();
+    try {
+      // Sample 1000 recent memories — should cover most active sources
+      const res = await fetch(
+        `${baseUrl}/memories?limit=1000&order_by=created_at&order_dir=desc`
+      );
+      if (!res.ok) {
+        return reply.code(502).send({ error: `Screenpipe error: ${res.status}` });
+      }
+      const json = (await res.json()) as ScreenpipeMemoryListResponse;
+
+      const tree: Record<string, { tags: Set<string>; count: number }> = {};
+      for (const m of json.data ?? []) {
+        const source = m.source || "(unknown)";
+        if (!tree[source]) tree[source] = { tags: new Set(), count: 0 };
+        tree[source].count++;
+        for (const t of m.tags ?? []) tree[source].tags.add(t);
+      }
+
+      const sources = Object.entries(tree)
+        .map(([name, info]) => ({
+          name,
+          count: info.count,
+          tags: [...info.tags].sort(),
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      return { sources };
+    } catch (err) {
+      return reply.code(502).send({
+        error: `Cannot reach Screenpipe`,
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /**
+   * Read the pipe export rules. The pipe calls this on every run.
+   * Rules live inside the screenpipe connector's config under
+   * `pipeExportRules`.
+   */
+  app.get("/api/screenpipe/pipe-config", async (_request, reply) => {
+    const c = connectorStore.getByType("screenpipe");
+    if (!c) return reply.code(404).send({ error: "Screenpipe connector not registered" });
+
+    const cfg = c.config as { pipeExportRules?: Record<string, ExportRule> };
+    const rules = cfg.pipeExportRules ?? {};
+
+    // Build a flat list of (source, excludedTags) entries the pipe can use
+    const enabledSources = Object.entries(rules)
+      .filter(([, r]) => r.enabled)
+      .map(([source, r]) => ({
+        source,
+        excludedTags: r.excludedTags ?? [],
+      }));
+
+    return {
+      rules,
+      enabledSources,
+    };
+  });
+
+  /** Update the pipe export rules */
+  app.put<{ Body: { rules: Record<string, ExportRule> } }>(
+    "/api/screenpipe/pipe-config",
+    async (request, reply) => {
+      const c = connectorStore.getByType("screenpipe");
+      if (!c) return reply.code(404).send({ error: "Screenpipe connector not registered" });
+
+      const newRules = request.body?.rules ?? {};
+      const newConfig = { ...c.config, pipeExportRules: newRules };
+      connectorStore.updateConfig(c.id, newConfig);
+
+      return { ok: true, rules: newRules };
+    }
+  );
+}
+
+interface ExportRule {
+  enabled: boolean;
+  excludedTags: string[];
 }
 
 function checkImported(sourceStore: SourceStore, externalId: string) {

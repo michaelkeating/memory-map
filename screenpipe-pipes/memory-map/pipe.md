@@ -11,52 +11,89 @@ category: knowledge
 description: Push selected screenpipe memories to Memory Map (a personal knowledge graph)
 ---
 
-You are the **memory-map** pipe. Your job is to find every screenpipe memory the user has marked for export to Memory Map and push it to the Memory Map server. You only push memories that explicitly request it via tag or source — never speculate.
+You are the **memory-map** pipe. Your job is to push the user's screenpipe memories to Memory Map (`http://localhost:3001`) according to **export rules** the user manages inside the Memory Map app. Memory Map turns each pushed memory into pages and connections in a personal knowledge graph.
 
-Memory Map is a personal knowledge graph that runs on `http://localhost:3001`. It accepts memories at `POST /api/screenpipe/push` and turns each one into pages and connections in a graph.
+**You only push memories that match the user's rules.** Never speculate.
 
 ---
 
-## Step 1: Fetch candidate memories
+## Step 1: Read the export rules from Memory Map
 
-Pull every memory that's tagged for Memory Map sync. The tag the user marks memories with is `memorymap`.
+The user configures which Screenpipe sources (and which tags within them) get exported. The rules live in Memory Map. Fetch them:
 
 ```bash
-curl -s "http://localhost:3030/memories?tags=memorymap&limit=100&order_by=created_at&order_dir=asc" -o /tmp/mm_candidates.json
-cat /tmp/mm_candidates.json
+curl -s "http://localhost:3001/api/screenpipe/pipe-config" -o /tmp/mm_rules.json
+cat /tmp/mm_rules.json
 ```
 
-If `data` is empty, also check whether the user has the auto-source convention set up — they may instead route memories by source name. Pull memories with source `memory-map`:
+The response looks like:
+
+```json
+{
+  "rules": {
+    "digital-clone": { "enabled": true, "excludedTags": ["private"] },
+    "personal-crm": { "enabled": true, "excludedTags": [] }
+  },
+  "enabledSources": [
+    { "source": "digital-clone", "excludedTags": ["private"] },
+    { "source": "personal-crm", "excludedTags": [] }
+  ]
+}
+```
+
+**If `enabledSources` is empty**, no sources are configured for export. Print `NO_RULES_CONFIGURED` and exit cleanly. The user needs to open Memory Map → Connectors → Pipe export rules and enable at least one source.
+
+**If Memory Map is unreachable** (connection refused, timeout) — print the error and exit. Don't push anything.
+
+---
+
+## Step 2: Fetch candidate memories per source
+
+For **each enabled source** in `enabledSources`, query Screenpipe for memories from that source:
 
 ```bash
-curl -s "http://localhost:3030/memories?source=memory-map&limit=100&order_by=created_at&order_dir=asc" -o /tmp/mm_candidates2.json
-cat /tmp/mm_candidates2.json
+curl -s "http://localhost:3030/memories?source=<source-name>&limit=100&order_by=created_at&order_dir=asc" -o /tmp/mm_candidates_<source>.json
 ```
 
-Combine the two result sets and deduplicate by `id`. If both are empty, print `NO_DATA` and exit. Do not push anything you weren't explicitly told to push.
+Combine all results into a single list, deduplicating by `id`.
+
+Also pull memories with the legacy `memorymap` tag (the user can still mark individual memories manually as a fallback):
+
+```bash
+curl -s "http://localhost:3030/memories?tags=memorymap&limit=100&order_by=created_at&order_dir=asc" -o /tmp/mm_manual.json
+```
+
+Add these to the combined list.
+
+If the combined list is empty, print `NO_DATA` and exit.
 
 ---
 
-## Step 2: Check what's already been synced
+## Step 3: Apply the per-source tag filter
 
-For each candidate memory, check whether the user has already exported it. We track this by adding a tag `memorymap-synced` to memories after we push them. So **skip any memory whose `tags` array already contains `memorymap-synced`**.
+For each candidate memory:
 
-After filtering out already-synced memories, you should be left with just the new ones to push.
+1. **Check if it's already been synced.** If its `tags` array contains `memorymap-synced`, skip it.
+2. **Look up the rule for its source.** Find the matching entry in `enabledSources`. If none (e.g. it came in via the manual `memorymap` tag), there are no excluded tags — process it.
+3. **Apply the excluded tag filter.** If ANY of the memory's tags appears in that source's `excludedTags` list, skip it.
+4. **Skip empty/trivial memories.** If `content.length < 20`, skip it.
 
-If the filtered list is empty, print `ALL_SYNCED` and exit.
+What's left is your set of memories to push.
+
+If the filtered list is empty, print `ALL_FILTERED_OUT` and exit.
 
 ---
 
-## Step 3: Push each new memory to Memory Map
+## Step 4: Push each memory to Memory Map
 
-For each remaining memory, POST it to Memory Map:
+For each memory in the filtered list, POST it to Memory Map:
 
 ```bash
 curl -s -X POST "http://localhost:3001/api/screenpipe/push" \
   -H "Content-Type: application/json" \
   -d '{
     "external_id": "<memory.id>",
-    "content": "<memory.content>",
+    "content": "<memory.content properly JSON-escaped>",
     "source": "<memory.source>",
     "tags": <memory.tags JSON array>,
     "importance": <memory.importance>,
@@ -64,27 +101,19 @@ curl -s -X POST "http://localhost:3001/api/screenpipe/push" \
   }'
 ```
 
-Use proper JSON escaping for the content field — it may contain quotes, newlines, and unicode.
+A successful response is `{"ok":true}`. A failure is `{"error":"...","detail":"..."}`.
 
-A successful response looks like `{"ok":true}`. A failure looks like `{"error":"...","detail":"..."}`.
+**If any push fails**, log the error but continue with the next memory. Memory Map being full or temporarily slow shouldn't block the rest.
 
-**If Memory Map is unreachable** (connection refused, timeout, 5xx) — stop, print the error, and do not modify the source memory in Screenpipe. The user will retry next sync.
+Sleep 200ms between pushes to be polite to both APIs.
 
 ---
 
-## Step 4: Mark the memory as synced in Screenpipe
+## Step 5: Mark the memory as synced
 
-After a successful push, add the `memorymap-synced` tag to the source memory so we don't push it again next run:
+For each memory that was successfully pushed, add the `memorymap-synced` tag back in Screenpipe so it doesn't get pushed again next run.
 
-```bash
-curl -s -X POST "http://localhost:3030/tags/vision/<memory.id>" \
-  -H "Content-Type: application/json" \
-  -d '{"tags": ["memorymap-synced"]}'
-```
-
-Note: the exact tag-add endpoint may be `/tags/<content_type>/<id>` — the content type for memories is `memory`. If `vision` doesn't work, try `memory`.
-
-You can also update the memory directly with PATCH:
+The Screenpipe API for updating a memory is a full PUT — you have to send the original content, importance, and the full new tags array. Read each original memory, append `memorymap-synced` to its existing tags, and PUT it back:
 
 ```bash
 curl -s -X PUT "http://localhost:3030/memories/<memory.id>" \
@@ -97,43 +126,47 @@ curl -s -X PUT "http://localhost:3030/memories/<memory.id>" \
   }'
 ```
 
-The PUT requires you to send the full memory content + tags + importance (it's a full update, not a patch). Read the original memory data and append `memorymap-synced` to the tags array.
+If the PUT fails, log it but don't retry the push — the memory IS in Memory Map, it just may get pushed again next run. That's annoying but not destructive (Memory Map's push endpoint is idempotent on `external_id`).
 
 ---
 
-## Step 5: Print summary
+## Step 6: Print summary
 
-When done, print a brief summary:
+Print a single-line summary at the end:
 
 ```
-Synced N memories to Memory Map.
-Skipped M already-synced memories.
-Failed P pushes.
+Synced N memories. Skipped M (already synced or filtered). Failed P pushes.
 ```
 
-If anything failed, list the failing memory IDs and the error messages.
+If anything failed, list the failing memory IDs and the first 100 chars of each error message.
 
 ---
 
-## How the user marks memories for sync
+## How the user controls this
 
-The user has two ways to send a memory to Memory Map from inside Screenpipe:
+The user manages export rules inside Memory Map:
 
-1. **Add the `memorymap` tag** to any existing memory.
-2. **Set `source` to `memory-map`** when creating a memory directly.
+1. Open Memory Map
+2. Click **Connectors** (header)
+3. Find the **Screenpipe** card → click **Pipe export rules**
+4. Toggle each Screenpipe source on/off
+5. For enabled sources, click **Tags** to expand and click any tag to exclude it (line-through = excluded)
+6. Click **Save rules**
 
-Either method will cause this pipe to push the memory on the next scheduled run (every 30 minutes by default). After a successful push, the memory gets the `memorymap-synced` tag added so it won't be pushed again.
+The pipe reads these rules on every run. There's no separate Screenpipe-side configuration to maintain.
 
-If the user wants to re-sync a memory (e.g. after editing it in Screenpipe), they should remove the `memorymap-synced` tag — the pipe will then push it again on the next run.
+**Manual override**: the user can also tag any specific memory with `memorymap` in Screenpipe and the pipe will push it on the next run regardless of the source rules. After pushing, the pipe adds `memorymap-synced` so it only happens once.
+
+To force a re-sync of an already-synced memory, the user removes the `memorymap-synced` tag from it.
 
 ---
 
 ## Rules
 
-- Never push memories that aren't explicitly tagged or sourced for Memory Map.
+- Never push memories that don't match the export rules.
 - Never strip tags from a memory — only ADD `memorymap-synced` after a successful push.
-- Never modify the memory `content` or `importance` — preserve the user's data exactly.
-- If a push fails, do NOT mark the memory as synced. The next run will retry.
-- Skip memories that don't have meaningful content (less than 20 characters).
+- Never modify memory `content` or `importance`.
 - Process memories oldest-first so the graph fills in chronological order.
-- Be polite to both APIs — if you have many memories to push, sleep 200ms between requests.
+- If an excluded tag is on a memory, skip the memory entirely (don't try to "push without that tag").
+- Sleep 200ms between pushes.
+- If Memory Map is down, exit cleanly — the next scheduled run will retry.
