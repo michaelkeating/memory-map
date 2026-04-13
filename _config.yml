@@ -1,0 +1,99 @@
+# GitHub Pages configuration for Memory Map
+# ------------------------------------------
+# GitHub Pages runs Jekyll on this repo and, because there is no index.md
+# or index.html at the root, it uses README.md as the site homepage. The
+# settings below control the theme, the site title/description, and which
+# directories Jekyll should ignore (so it doesn't try to process .tsx, .ts,
+# and other source files as site content).
+#
+# To turn the site on, after committing this file:
+#   1. Push to main
+#   2. Open https://github.com/michaelkeating/memory-map/settings/pages
+#   3. Under "Build and deployment" → Source, select "Deploy from a branch"
+#   4. Branch: main, folder: / (root)
+#   5. Save. The first build takes a minute or two; the URL will be
+#      https://michaelkeating.github.io/memory-map/
+
+title: Memory Map
+description: A personal knowledge graph that organizes itself.
+
+# GitHub Pages-supported theme.
+# Alternatives you can swap in:
+#   jekyll-theme-minimal      — clean left sidebar, sparse (developer-flavored)
+#   jekyll-theme-architect    — structured, no gradient header
+#   jekyll-theme-slate        — blue/dark, more corporate
+#   jekyll-theme-midnight     — dark theme
+#   jekyll-theme-modernist    — clean sans-serif
+# Full list: https://pages.github.com/themes/
+theme: jekyll-theme-cayman
+
+# Links that appear in the Cayman theme's header buttons (below the title).
+# The theme reads these if present. Omit if you don't want header buttons.
+show_downloads: false
+
+# Social / metadata — used by some themes and by GitHub's OG-tag generation.
+url: https://michaelkeating.github.io
+baseurl: /memory-map
+
+# Files and directories Jekyll should NOT process.
+# Source code, lockfiles, and build output have no place on the public site.
+exclude:
+  - node_modules
+  - packages
+  - screenpipe-pipes
+  - data
+  - data-archived-*
+  - .turbo
+  - dist
+  - .env
+  - .env.example
+  - pnpm-lock.yaml
+  - pnpm-workspace.yaml
+  - package.json
+  - turbo.json
+  - tsconfig.json
+  - tsconfig.base.json
+  - CLAUDE.md
+  - AGENTS.md
+  - vendor
+  - Gemfile
+  - Gemfile.lock
+
+# Files Jekyll should always include even if they start with a dot or
+# match something in the default excludes. Not needed right now, but handy
+# later if you add e.g. a CNAME file.
+# include:
+#   - .nojekyll
+#   - CNAME
+
+# Markdown processing
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+
+# Plugins that GitHub Pages enables by default. Listed here for clarity;
+# you don't strictly need this block — GitHub Pages auto-enables them.
+plugins:
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-readme-index
+  - jekyll-default-layout
+  - jekyll-titles-from-headings
+
+# jekyll-relative-links turns relative links in your README like
+# [SECURITY.md](./SECURITY.md) into proper site links so they work when
+# served from /memory-map/. Without this plugin, clicking SECURITY.md on
+# the rendered page would 404.
+relative_links:
+  enabled: true
+  collections: true
+
+# jekyll-readme-index makes README.md act as the directory index (i.e.
+# the site homepage). Enabled by default on GitHub Pages; included here
+# for clarity.
+readme_index:
+  enabled: true
+  remove_originals: false
+  with_frontmatter: true
