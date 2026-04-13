@@ -7,7 +7,6 @@ import type {
   ConfigField,
 } from "@memory-map/shared";
 import { MemoryBrowser } from "./MemoryBrowser.js";
-import { ExportRulesPanel } from "./ExportRulesPanel.js";
 
 interface ConnectorsPanelProps {
   open: boolean;
@@ -21,7 +20,6 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [memoryBrowserOpen, setMemoryBrowserOpen] = useState(false);
-  const [exportRulesOpen, setExportRulesOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -141,11 +139,6 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
                   ? () => setMemoryBrowserOpen(true)
                   : undefined
               }
-              onExportRules={
-                c.type === "screenpipe"
-                  ? () => setExportRulesOpen(true)
-                  : undefined
-              }
             />
           ))}
         </div>
@@ -154,10 +147,6 @@ export function ConnectorsPanel({ open, onClose }: ConnectorsPanelProps) {
       <MemoryBrowser
         open={memoryBrowserOpen}
         onClose={() => setMemoryBrowserOpen(false)}
-      />
-      <ExportRulesPanel
-        open={exportRulesOpen}
-        onClose={() => setExportRulesOpen(false)}
       />
     </>
   );
@@ -173,7 +162,6 @@ function ConnectorCard({
   onSync,
   onSaveConfig,
   onBrowseMemories,
-  onExportRules,
 }: {
   connector: ConnectorRecord;
   info: ConnectorTypeInfo | undefined;
@@ -184,7 +172,6 @@ function ConnectorCard({
   onSync: () => void;
   onSaveConfig: (config: Record<string, unknown>) => void;
   onBrowseMemories?: () => void;
-  onExportRules?: () => void;
 }) {
   const lastSync = connector.lastSyncAt ? formatRelative(connector.lastSyncAt) : "never";
 
@@ -244,14 +231,6 @@ function ConnectorCard({
               className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
             >
               Browse memories
-            </button>
-          )}
-          {onExportRules && (
-            <button
-              onClick={onExportRules}
-              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
-            >
-              Pipe export rules
             </button>
           )}
         </div>

@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp src/storage/schema.sql dist/storage/schema.sql && cp src/llm/memory-map-context.md dist/llm/memory-map-context.md",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"

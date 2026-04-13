@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { ChatPanel } from "./components/chat/ChatPanel.js";
 import { GraphCanvas } from "./components/graph/GraphCanvas.js";
@@ -6,19 +6,72 @@ import { ConnectorsPanel } from "./components/connectors/ConnectorsPanel.js";
 import { PageViewer } from "./components/pages/PageViewer.js";
 import { LogPanel } from "./components/log/LogPanel.js";
 import { LintPanel } from "./components/log/LintPanel.js";
+import { SettingsPanel } from "./components/settings/SettingsPanel.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { useGraphStore } from "./hooks/useGraph.js";
 import { useIsMobile } from "./hooks/useMediaQuery.js";
+import { LoginScreen } from "./components/auth/LoginScreen.js";
 
 type MobileTab = "chat" | "graph" | "page";
 
+type AuthState = "checking" | "authed" | "unauthed";
+
 export function App() {
+  const [authState, setAuthState] = useState<AuthState>("checking");
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch("/api/auth/check", { credentials: "include" });
+        const json = await res.json().catch(() => ({ authed: false }));
+        if (cancelled) return;
+        setAuthState(json.authed ? "authed" : "unauthed");
+      } catch {
+        if (!cancelled) setAuthState("unauthed");
+      }
+    };
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (authState === "checking") {
+    return <div className="h-[100dvh] bg-white" />;
+  }
+  if (authState === "unauthed") {
+    return <LoginScreen onAuthed={() => setAuthState("authed")} />;
+  }
+  return <AppInner />;
+}
+
+function AppInner() {
   useWebSocket();
   const { nodes, edges, setActivePageId: setGraphActivePageId } = useGraphStore();
   const isMobile = useIsMobile();
   const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [lintOpen, setLintOpen] = useState(false);
+
+  // Check LLM config state on load so we can pulse the Settings button and
+  // show a banner when the user hasn't added a key yet.
+  const refreshLlmStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings/llm", { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setLlmConfigured(Boolean(data.hasApiKey));
+    } catch {
+      // leave as-is
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLlmStatus();
+  }, [refreshLlmStatus]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [pageViewOpen, setPageViewOpen] = useState(false);
   const [draftMode, setDraftMode] = useState(false);
@@ -90,6 +143,27 @@ export function App() {
             Log
           </button>
           <button
+            onClick={() => setSettingsOpen(true)}
+            className={`relative text-xs px-3 py-1.5 rounded-md border transition ${
+              llmConfigured === false
+                ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300"
+            }`}
+            title={
+              llmConfigured === false
+                ? "No API key configured — click to set one up"
+                : "Settings"
+            }
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden="true">⚙</span>
+              <span>Settings</span>
+              {llmConfigured === false && (
+                <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              )}
+            </span>
+          </button>
+          <button
             onClick={() => setConnectorsOpen(true)}
             className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
           >
@@ -99,6 +173,11 @@ export function App() {
       </header>
 
       <ConnectorsPanel open={connectorsOpen} onClose={() => setConnectorsOpen(false)} />
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={refreshLlmStatus}
+      />
       <LogPanel
         open={logOpen}
         onClose={() => setLogOpen(false)}
@@ -122,7 +201,11 @@ export function App() {
             <div
               className={`absolute inset-0 ${mobileTab === "chat" ? "" : "hidden"}`}
             >
-              <ChatPanel onOpenPage={openPage} />
+              <ChatPanel
+                onOpenPage={openPage}
+                llmConfigured={llmConfigured}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
             </div>
             <div
               className={`absolute inset-0 ${mobileTab === "graph" ? "" : "hidden"}`}
@@ -169,7 +252,11 @@ export function App() {
           className="flex-1"
         >
           <Panel defaultSize={pageViewOpen ? 28 : 38} minSize={20}>
-            <ChatPanel onOpenPage={openPage} />
+            <ChatPanel
+                onOpenPage={openPage}
+                llmConfigured={llmConfigured}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
           </Panel>
           <PanelResizeHandle className="w-px bg-zinc-200 hover:bg-zinc-300 transition-colors data-[resize-handle-state=drag]:bg-zinc-900" />
           <Panel defaultSize={pageViewOpen ? 42 : 62} minSize={25}>

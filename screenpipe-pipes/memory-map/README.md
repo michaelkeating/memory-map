@@ -1,6 +1,6 @@
 # Memory Map pipe for Screenpipe
 
-A Screenpipe pipe that pushes selected memories to a running Memory Map server. Lets you curate from inside Screenpipe which memories should become nodes in your knowledge graph.
+A Screenpipe pipe that pushes selected memories to a running Memory Map server. Everything is configured on the Screenpipe side — you don't need to open Memory Map's UI to set rules.
 
 ## Install
 
@@ -11,38 +11,55 @@ mkdir -p ~/.screenpipe/pipes/memory-map
 cp pipe.md ~/.screenpipe/pipes/memory-map/pipe.md
 ```
 
-Restart Screenpipe (or wait for it to pick up the new pipe — it scans the directory periodically). The pipe should appear in Screenpipe's pipe list as **Memory Map Sync**, and it'll run automatically every 30 minutes.
+Restart Screenpipe (or wait for it to pick up the new pipe — it scans the directory periodically). The pipe should appear in Screenpipe's pipe list as **Memory Map Sync** and will run automatically every 30 minutes.
 
-## How to mark a memory for sync
+## Prerequisites
 
-You have two ways to tell the pipe "send this memory to Memory Map":
+1. **Memory Map must be running** (default `http://localhost:3001`). The first time it starts, it writes its API key to `~/.screenpipe/memory-map.key` so this pipe can read it with no macOS permission prompts.
+2. **Memory Map must have an Anthropic API key configured** (Memory Map → Settings → API key). Without it, the push endpoint will succeed but auto-organizing won't run.
 
-### 1. Tag a memory with `memorymap`
+No other Memory Map configuration is required. In particular, you do **not** need to open Memory Map → Connectors → Screenpipe. That connector is a separate feature (Memory Map polling Screenpipe); the pipe and the connector are independent.
 
-Open any existing memory in Screenpipe and add the `memorymap` tag. On the next scheduled run, the pipe will push it to Memory Map.
+## Configure what gets pushed
 
-### 2. Create a memory with `source: memory-map`
+Create `~/.screenpipe/memory-map-rules.json` with the Screenpipe sources you want exported:
 
-If you (or another pipe) creates a memory and sets its source to `memory-map`, the pipe will pick it up automatically.
+```json
+{
+  "enabledSources": [
+    { "source": "digital-clone", "excludedTags": ["private", "draft"] },
+    { "source": "personal-crm", "excludedTags": [] }
+  ]
+}
+```
 
-After a successful push, the pipe adds the `memorymap-synced` tag to the memory so it doesn't get pushed twice. If you want to re-sync (e.g. after editing the memory), remove the `memorymap-synced` tag.
+Each entry:
+- `source` — the Screenpipe source name (the `source` field on a Screenpipe memory)
+- `excludedTags` — memories from this source that carry any of these tags are skipped
 
-## Configuration
+Edit the file any time. The pipe re-reads it on every run.
 
-The pipe assumes Memory Map is running on `http://localhost:3001` and Screenpipe is on `http://localhost:3030` (the defaults). If you've changed those, edit the URLs in `pipe.md`.
+If the file doesn't exist, the pipe runs in **manual-only mode** (see next section).
+
+## Mark a specific memory for sync (no rules file needed)
+
+You can bypass `enabledSources` entirely by tagging a memory with `memorymap` in Screenpipe. The pipe picks up anything tagged `memorymap` on every run, regardless of source rules — this works even with no rules file at all.
+
+After a successful push, the pipe adds the `memorymap-synced` tag so the memory doesn't get pushed twice. To re-sync a memory (e.g. after editing it), remove the `memorymap-synced` tag.
 
 ## Troubleshooting
 
 - **Pipe doesn't appear in Screenpipe**: make sure the file is at `~/.screenpipe/pipes/memory-map/pipe.md` exactly. Restart Screenpipe.
-- **Pipe runs but doesn't push anything**: check that you've actually tagged a memory with `memorymap` (not `memory-map` — note the lack of dash). Visit `http://localhost:3030/memories?tags=memorymap` in your browser to verify.
-- **Push fails with "connection refused"**: Memory Map server isn't running. Start it with `pnpm --filter @memory-map/server dev` from the Memory Map repo.
-- **Memory shows as "Imported" in the Memory Map browser but the pipe keeps pushing it**: the pipe failed to add the `memorymap-synced` tag. Check Screenpipe's tag-add API endpoint format and update Step 4 of `pipe.md` accordingly.
+- **Pipe prints `NO_API_KEY`**: Memory Map hasn't started yet (or failed on startup). Launch Memory Map — on first run it writes `~/.screenpipe/memory-map.key`.
+- **Pipe runs but prints `NO_DATA`**: no candidate memories. Check that `~/.screenpipe/memory-map-rules.json` names an actual Screenpipe source, or tag a memory with `memorymap` for a one-shot test.
+- **Push fails with "connection refused"**: Memory Map server isn't running. Start it from the Memory Map repo.
+- **Memory was pushed but the graph looks empty**: Memory Map's auto-organizer runs the push through an LLM. If no Anthropic API key is configured (Memory Map → Settings), the raw source is stored but no pages/connections are generated. Add a key and the next push will organize properly.
 
-## How it complements the Memory Map side
+## Relationship to the Memory Map Screenpipe connector
 
-This pipe is the **Screenpipe-side** way to control what flows into Memory Map. The Memory Map app also has its own controls:
+Memory Map also has a built-in Screenpipe connector (Memory Map → Connectors → Screenpipe) that polls Screenpipe on a schedule and pulls memories in. That's a different mechanism in the opposite direction.
 
-- **Connector filters** (Configure → Source filter / Tag filter): the Memory Map server polls Screenpipe and pulls only memories that match.
-- **Memory Browser** (Connectors → Browse memories): a UI that lists all Screenpipe memories with manual import buttons.
+- **This pipe** (push): runs inside Screenpipe, reads `~/.screenpipe/memory-map-rules.json`, pushes to Memory Map.
+- **The connector** (pull): runs inside Memory Map, has its own filter config in the Connectors panel, pulls from Screenpipe.
 
-The pipe adds a third option: **mark from inside Screenpipe** and the pipe pushes them. Useful when you're already in Screenpipe and don't want to switch contexts.
+You can run one, the other, or both. Memory Map's ingestion is idempotent on the Screenpipe memory ID, so if both paths push the same memory, you get one page — not a duplicate. Use whichever matches your workflow; they don't conflict.

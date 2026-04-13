@@ -11,7 +11,9 @@ import { AssociationStore } from "./storage/association-store.js";
 import { ChatStore } from "./storage/chat-store.js";
 import { LinkIndex } from "./engine/link-index.js";
 import { GraphService } from "./engine/graph-service.js";
-import { ClaudeProvider } from "./llm/provider.js";
+import { LlmManager, DEFAULT_CLAUDE_MODEL } from "./llm/llm-manager.js";
+import { SettingsStore } from "./storage/settings-store.js";
+import { registerSettingsRoutes } from "./api/settings.js";
 import { AutoOrganizer } from "./llm/auto-organizer.js";
 import { ChatHandler } from "./llm/chat-handler.js";
 import { WebSocketHub } from "./ws/hub.js";
@@ -33,6 +35,7 @@ import { SourceStore } from "./storage/source-store.js";
 import { EventLogStore } from "./storage/event-log-store.js";
 import { ProfileService } from "./llm/profile-service.js";
 import { registerProfileRoutes } from "./api/profiles.js";
+import { loadOrCreateCredentials, registerAuth, isWebSocketRequestAuthed } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -40,6 +43,9 @@ async function main() {
   // Initialize database
   const db = initDb();
   console.log(`Database initialized at ${config.dataDir}`);
+
+  // Load or create auth credentials (apiKey + sessionSecret)
+  const creds = loadOrCreateCredentials();
 
   // Initialize stores
   const pageStore = new PageStore(db);
@@ -60,15 +66,23 @@ async function main() {
   // Initialize WebSocket hub
   const wsHub = new WebSocketHub();
 
-  // Check API key
-  if (!config.anthropicApiKey || config.anthropicApiKey === "sk-ant-...") {
-    console.error("WARNING: ANTHROPIC_API_KEY not set. Chat will fail.");
+  // Resolve initial LLM config: database settings take precedence over env var.
+  // If neither is set, LlmManager starts in "unconfigured" state and the UI
+  // nudges the user to open Settings.
+  const settingsStore = new SettingsStore(db);
+  const storedLlm = settingsStore.getLlm();
+  const initialLlmConfig = storedLlm ?? {
+    provider: "anthropic" as const,
+    apiKey: config.anthropicApiKey,
+    model: DEFAULT_CLAUDE_MODEL,
+  };
+  const llm = new LlmManager(initialLlmConfig);
+  if (llm.isConfigured()) {
+    const src = storedLlm ? "database" : "env var ANTHROPIC_API_KEY";
+    console.log(`LLM configured: ${llm.modelId} (key from ${src})`);
   } else {
-    console.log(`Anthropic API key loaded (${config.anthropicApiKey.slice(0, 12)}...)`);
+    console.warn("⚠️  No LLM API key configured. Open Memory Map → Settings to add one.");
   }
-
-  // Initialize LLM
-  const llm = new ClaudeProvider("claude-sonnet-4-20250514", config.anthropicApiKey);
   const profileService = new ProfileService(
     db,
     llm,
@@ -109,12 +123,20 @@ async function main() {
   // Create Fastify app
   const app = Fastify({ logger: true });
 
-  await app.register(fastifyCors, { origin: true });
+  await app.register(fastifyCors, { origin: true, credentials: true });
   await app.register(fastifyWebSocket);
+
+  // Auth gate for /api/* — must be registered before routes
+  await registerAuth(app, creds);
 
   // WebSocket endpoint
   app.register(async function (fastify) {
-    fastify.get("/ws", { websocket: true }, (socket) => {
+    fastify.get("/ws", { websocket: true }, (socket, request) => {
+      if (!isWebSocketRequestAuthed(request, creds)) {
+        socket.send(JSON.stringify({ type: "error", error: "Unauthorized" }));
+        socket.close(1008, "Unauthorized");
+        return;
+      }
       wsHub.register(socket);
 
       // Send full graph on connect
@@ -144,6 +166,7 @@ async function main() {
   registerTagRoutes(app, pageStore, linkIndex, graphService, wsHub, llm, profileService);
   registerLogRoutes(app, eventLog, pageStore, sourceStore);
   registerLintRoutes(app, pageStore, linkIndex, llm, eventLog);
+  registerSettingsRoutes(app, settingsStore, llm);
 
   // Health check
   app.get("/api/health", async () => ({
@@ -172,8 +195,18 @@ async function main() {
     console.log("No frontend build found, running API-only mode");
   }
 
-  // Start server
-  await app.listen({ port: config.port, host: "0.0.0.0" });
+  // Start server. Default to localhost-only; opt into LAN binding via BIND_LAN=true.
+  const bindLan = process.env.BIND_LAN === "true";
+  const host = bindLan ? "0.0.0.0" : "127.0.0.1";
+  await app.listen({ port: config.port, host });
+  if (bindLan) {
+    console.log("");
+    console.log(`⚠️  BIND_LAN=true — server is reachable from any device on your network.`);
+    console.log(`   Anyone who can reach this machine on port ${config.port} will need the API key`);
+    console.log(`   to do anything, but the login page will be visible. Prefer Tailscale or SSH`);
+    console.log(`   tunnelling for remote access if you don't trust your local network.`);
+    console.log("");
+  }
   console.log(`Memory Map server running on http://localhost:${config.port}`);
 
   // Graceful shutdown

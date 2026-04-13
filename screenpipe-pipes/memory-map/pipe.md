@@ -11,29 +11,38 @@ category: knowledge
 description: Push selected screenpipe memories to Memory Map (a personal knowledge graph)
 ---
 
-You are the **memory-map** pipe. Your job is to push the user's screenpipe memories to Memory Map (`http://localhost:3001`) according to **export rules** the user manages inside the Memory Map app. Memory Map turns each pushed memory into pages and connections in a personal knowledge graph.
+You are the **memory-map** pipe. Your job is to push the user's screenpipe memories to Memory Map (`http://localhost:3001`) according to **export rules** the user manages locally in Screenpipe. Memory Map turns each pushed memory into pages and connections in a personal knowledge graph.
 
-**You only push memories that match the user's rules.** Never speculate.
+**You only push memories that match the user's rules.** Never speculate. All configuration lives on the Screenpipe side — the pipe does not read rules from Memory Map.
 
 ---
 
-## Step 1: Read the export rules from Memory Map
+## Step 0: Load the API key and local rules
 
-The user configures which Screenpipe sources (and which tags within them) get exported. The rules live in Memory Map. Fetch them:
+Memory Map's API requires authentication. When the Memory Map server starts, it mirrors its API key into `~/.screenpipe/memory-map.key` (mode 600) so this pipe can read it without crossing sandbox boundaries — that keeps macOS from prompting for file-access permission.
 
 ```bash
-curl -s "http://localhost:3001/api/screenpipe/pipe-config" -o /tmp/mm_rules.json
-cat /tmp/mm_rules.json
+MM_KEY=$(cat ~/.screenpipe/memory-map.key)
 ```
 
-The response looks like:
+If this fails (file missing or empty), print `NO_API_KEY` and exit. The user needs to start Memory Map at least once so it writes the key file.
+
+Use `Authorization: Bearer $MM_KEY` on **every** call to `localhost:3001` for the rest of this run. Do **not** add an Authorization header to `localhost:3030` (Screenpipe's own API).
+
+Then load the export rules from `~/.screenpipe/memory-map-rules.json`:
+
+```bash
+if [ -f ~/.screenpipe/memory-map-rules.json ]; then
+  cat ~/.screenpipe/memory-map-rules.json > /tmp/mm_rules.json
+else
+  echo '{"enabledSources": []}' > /tmp/mm_rules.json
+fi
+```
+
+The rules file has this shape:
 
 ```json
 {
-  "rules": {
-    "digital-clone": { "enabled": true, "excludedTags": ["private"] },
-    "personal-crm": { "enabled": true, "excludedTags": [] }
-  },
   "enabledSources": [
     { "source": "digital-clone", "excludedTags": ["private"] },
     { "source": "personal-crm", "excludedTags": [] }
@@ -41,35 +50,31 @@ The response looks like:
 }
 ```
 
-**If `enabledSources` is empty**, no sources are configured for export. Print `NO_RULES_CONFIGURED` and exit cleanly. The user needs to open Memory Map → Connectors → Pipe export rules and enable at least one source.
-
-**If Memory Map is unreachable** (connection refused, timeout) — print the error and exit. Don't push anything.
+`enabledSources` can be empty. In that case the pipe still runs — it just doesn't fetch memories by source. It will still pick up memories the user manually tagged with `memorymap` (see Step 1).
 
 ---
 
-## Step 2: Fetch candidate memories per source
+## Step 1: Fetch candidate memories
 
-For **each enabled source** in `enabledSources`, query Screenpipe for memories from that source:
+If `enabledSources` is non-empty, for **each entry** query Screenpipe for memories from that source:
 
 ```bash
 curl -s "http://localhost:3030/memories?source=<source-name>&limit=100&order_by=created_at&order_dir=asc" -o /tmp/mm_candidates_<source>.json
 ```
 
-Combine all results into a single list, deduplicating by `id`.
-
-Also pull memories with the legacy `memorymap` tag (the user can still mark individual memories manually as a fallback):
+Always also pull memories with the `memorymap` tag — this is the manual-override path, and it works whether or not `enabledSources` has any entries:
 
 ```bash
 curl -s "http://localhost:3030/memories?tags=memorymap&limit=100&order_by=created_at&order_dir=asc" -o /tmp/mm_manual.json
 ```
 
-Add these to the combined list.
+Combine all results into a single list, deduplicating by `id`.
 
 If the combined list is empty, print `NO_DATA` and exit.
 
 ---
 
-## Step 3: Apply the per-source tag filter
+## Step 2: Apply the per-source tag filter
 
 For each candidate memory:
 
@@ -84,13 +89,14 @@ If the filtered list is empty, print `ALL_FILTERED_OUT` and exit.
 
 ---
 
-## Step 4: Push each memory to Memory Map
+## Step 3: Push each memory to Memory Map
 
 For each memory in the filtered list, POST it to Memory Map:
 
 ```bash
 curl -s -X POST "http://localhost:3001/api/screenpipe/push" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $MM_KEY" \
   -d '{
     "external_id": "<memory.id>",
     "content": "<memory.content properly JSON-escaped>",
@@ -109,7 +115,7 @@ Sleep 200ms between pushes to be polite to both APIs.
 
 ---
 
-## Step 5: Mark the memory as synced
+## Step 4: Mark the memory as synced
 
 For each memory that was successfully pushed, add the `memorymap-synced` tag back in Screenpipe so it doesn't get pushed again next run.
 
@@ -130,7 +136,7 @@ If the PUT fails, log it but don't retry the push — the memory IS in Memory Ma
 
 ---
 
-## Step 6: Print summary
+## Step 5: Print summary
 
 Print a single-line summary at the end:
 
@@ -144,26 +150,26 @@ If anything failed, list the failing memory IDs and the first 100 chars of each 
 
 ## How the user controls this
 
-The user manages export rules inside Memory Map:
+The user manages export rules by editing `~/.screenpipe/memory-map-rules.json` directly. Example:
 
-1. Open Memory Map
-2. Click **Connectors** (header)
-3. Find the **Screenpipe** card → click **Pipe export rules**
-4. Toggle each Screenpipe source on/off
-5. For enabled sources, click **Tags** to expand and click any tag to exclude it (line-through = excluded)
-6. Click **Save rules**
+```json
+{
+  "enabledSources": [
+    { "source": "digital-clone", "excludedTags": ["private", "draft"] },
+    { "source": "personal-crm", "excludedTags": [] }
+  ]
+}
+```
 
-The pipe reads these rules on every run. There's no separate Screenpipe-side configuration to maintain.
+The pipe reads this file on every run. No Memory Map configuration is needed — a fresh Memory Map install just needs to be running with a valid Anthropic API key.
 
-**Manual override**: the user can also tag any specific memory with `memorymap` in Screenpipe and the pipe will push it on the next run regardless of the source rules. After pushing, the pipe adds `memorymap-synced` so it only happens once.
-
-To force a re-sync of an already-synced memory, the user removes the `memorymap-synced` tag from it.
+**Manual override**: the user can also tag any specific memory with `memorymap` in Screenpipe and the pipe will push it on the next run regardless of the source rules, even if no rules file exists. After pushing, the pipe adds `memorymap-synced` so it only happens once. To force a re-sync, remove the `memorymap-synced` tag.
 
 ---
 
 ## Rules
 
-- Never push memories that don't match the export rules.
+- Never push memories that don't match the export rules AND aren't manually tagged `memorymap`.
 - Never strip tags from a memory — only ADD `memorymap-synced` after a successful push.
 - Never modify memory `content` or `importance`.
 - Process memories oldest-first so the graph fills in chronological order.

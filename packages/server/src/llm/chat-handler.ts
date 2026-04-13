@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { LLMProvider, LLMMessage } from "./provider.js";
 import type { PageStore } from "../storage/page-store.js";
@@ -8,7 +11,31 @@ import type { ProfileService } from "./profile-service.js";
 import type { SourceStore } from "../storage/source-store.js";
 import type { EventLogStore } from "../storage/event-log-store.js";
 
-const SYSTEM_PROMPT = `You are the conversational interface to **Memory Map**, the user's personal knowledge graph. Memory Map turns captured observations (from Screenpipe, Notion, Google Drive, chat input) into pages and connections.
+/**
+ * Load the broader "who you are, what Memory Map is" context that sits
+ * above the tool-usage guide. Read once at module init. If the file is
+ * missing (e.g. build didn't copy it), we fall back to an empty string
+ * and log a warning — the tool-usage guide below is still enough for the
+ * model to be functional.
+ */
+function loadMemoryMapContext(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const contextPath = join(here, "memory-map-context.md");
+    return readFileSync(contextPath, "utf-8").trim();
+  } catch (err) {
+    console.warn(
+      `Could not load memory-map-context.md: ${
+        err instanceof Error ? err.message : String(err)
+      }. Chat will run with the tool-usage guide only.`
+    );
+    return "";
+  }
+}
+
+const MEMORY_MAP_CONTEXT = loadMemoryMapContext();
+
+const TOOL_USAGE_GUIDE = `You are the conversational interface to **Memory Map**, the user's personal knowledge graph. Memory Map turns captured observations (from Screenpipe, Notion, Google Drive, chat input) into pages and connections.
 
 Your job is to help the user **search**, **read**, **add**, and **modify** memories in their graph. You have a set of tools to do this. Use them iteratively: search first, read the results, then act.
 
@@ -34,6 +61,17 @@ DO NOT:
 - Modify pages without being asked.
 - Delete pages without explicit confirmation from the user.
 - Spam tool calls. Search once, then act.`;
+
+/**
+ * Final system prompt sent to the model: the broader Memory Map context
+ * (identity, job, privacy, app knowledge) followed by the tool-usage guide.
+ * The tool guide goes last on purpose — LLMs attend more strongly to the
+ * end of the system message, and the tool-usage rules are what the model
+ * needs to actually answer the immediate turn.
+ */
+const SYSTEM_PROMPT = MEMORY_MAP_CONTEXT
+  ? `${MEMORY_MAP_CONTEXT}\n\n---\n\n${TOOL_USAGE_GUIDE}`
+  : TOOL_USAGE_GUIDE;
 
 const TOOLS: Anthropic.Tool[] = [
   {

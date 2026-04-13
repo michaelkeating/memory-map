@@ -161,3 +161,10 @@ CREATE TABLE IF NOT EXISTS connectors (
 );
 
 CREATE INDEX IF NOT EXISTS idx_connectors_type ON connectors(type);
+
+-- Arbitrary key/value settings (LLM config, future preferences)
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
