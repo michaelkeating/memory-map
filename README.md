@@ -46,8 +46,8 @@
 ## Install
 
 ```bash
-git clone https://github.com/michaelkeating/Memory-Map.git
-cd Memory-Map
+git clone https://github.com/michaelkeating/memory-map.git
+cd memory-map
 pnpm install
 pnpm dev
 ```
