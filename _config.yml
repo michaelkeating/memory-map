@@ -15,7 +15,21 @@
 #      https://michaelkeating.github.io/memory-map/
 
 title: Memory Map
-description: A personal knowledge graph that organizes itself.
+description: A personal knowledge graph that organizes itself. Chat about your memories and ideas; an LLM turns them into linked pages and connections. Runs entirely on your own machine.
+author: Michael Keating
+
+# Social / preview image. Shows up in link unfurls on Twitter/X, LinkedIn,
+# Facebook, iMessage, Slack, Discord, Mastodon, etc. Most platforms prefer
+# 1200×630 (1.91:1). graph-overview.png is 1500×850 (~1.76:1) — close
+# enough that it crops cleanly. Swap for a dedicated 1200×630 card later
+# if you want pixel-perfect previews.
+image: /docs/images/graph-overview.png
+logo: /docs/images/graph-overview.png
+
+# Twitter-specific. Uncomment and fill in if you have a handle to attribute.
+# twitter:
+#   username: your_twitter_handle
+#   card: summary_large_image
 
 # GitHub Pages-supported theme.
 # Alternatives you can swap in:
@@ -81,6 +95,7 @@ plugins:
   - jekyll-readme-index
   - jekyll-default-layout
   - jekyll-titles-from-headings
+  - jekyll-seo-tag
 
 # jekyll-relative-links turns relative links in your README like
 # [SECURITY.md](./SECURITY.md) into proper site links so they work when

@@ -1,0 +1,13 @@
+{%- comment -%}
+The Cayman theme's default layout includes this file (if present) near
+the end of the <head> tag. We use it to inject meta tags that the theme
+doesn't generate by default — specifically the Open Graph and Twitter
+Card tags that social platforms use to build link previews.
+
+The {% seo %} tag comes from the jekyll-seo-tag plugin (enabled in
+_config.yml) and generates a full set of OG, Twitter, and JSON-LD meta
+tags from the site's title, description, url, baseurl, image, and author
+fields. It also handles per-page overrides if we ever add front matter
+to other pages.
+{%- endcomment -%}
+{% seo %}
