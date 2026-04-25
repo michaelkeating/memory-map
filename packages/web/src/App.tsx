@@ -7,6 +7,7 @@ import { PageViewer } from "./components/pages/PageViewer.js";
 import { LogPanel } from "./components/log/LogPanel.js";
 import { LintPanel } from "./components/log/LintPanel.js";
 import { SettingsPanel } from "./components/settings/SettingsPanel.js";
+import { ImportPanel } from "./components/files/ImportPanel.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { useGraphStore } from "./hooks/useGraph.js";
 import { useIsMobile } from "./hooks/useMediaQuery.js";
@@ -51,6 +52,7 @@ function AppInner() {
   const { nodes, edges, setActivePageId: setGraphActivePageId } = useGraphStore();
   const isMobile = useIsMobile();
   const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
   const [logOpen, setLogOpen] = useState(false);
@@ -129,6 +131,13 @@ function AppInner() {
             + New
           </button>
           <button
+            onClick={() => setImportOpen(true)}
+            className="text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
+            title="Import files (text or PDF)"
+          >
+            Import
+          </button>
+          <button
             onClick={() => setLintOpen(true)}
             className="hidden sm:inline-block text-xs px-3 py-1.5 rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition"
             title="Run a health check on the graph"
@@ -173,6 +182,7 @@ function AppInner() {
       </header>
 
       <ConnectorsPanel open={connectorsOpen} onClose={() => setConnectorsOpen(false)} />
+      <ImportPanel open={importOpen} onClose={() => setImportOpen(false)} />
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

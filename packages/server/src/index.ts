@@ -31,6 +31,7 @@ import { registerScreenpipeRoutes } from "./api/screenpipe.js";
 import { registerTagRoutes } from "./api/tags.js";
 import { registerLogRoutes } from "./api/log.js";
 import { registerLintRoutes } from "./api/lint.js";
+import { registerFileRoutes } from "./api/files.js";
 import { SourceStore } from "./storage/source-store.js";
 import { EventLogStore } from "./storage/event-log-store.js";
 import { ProfileService } from "./llm/profile-service.js";
@@ -117,7 +118,7 @@ async function main() {
   const connectorRunner = new ConnectorRunner(connectorStore, organizer, graphService, wsHub);
   connectorRunner.register(new ScreenpipeConnector());
   connectorRunner.register(new NotionConnector());
-  connectorRunner.register(new GoogleDriveConnector());
+  connectorRunner.register(new GoogleDriveConnector(llm));
   console.log("Connectors registered: screenpipe, notion, google-drive");
 
   // Create Fastify app
@@ -167,6 +168,7 @@ async function main() {
   registerLogRoutes(app, eventLog, pageStore, sourceStore);
   registerLintRoutes(app, pageStore, linkIndex, llm, eventLog);
   registerSettingsRoutes(app, settingsStore, llm);
+  await registerFileRoutes(app, organizer, llm, graphService, wsHub);
 
   // Health check
   app.get("/api/health", async () => ({

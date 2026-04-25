@@ -370,50 +370,74 @@ ${context}`;
 
     // Create pages first (so associations can reference them)
     for (const op of ops.createPages) {
-      const page = this.pageStore.create(op);
-      this.linkIndex.updateForPage(page.frontmatter.id, page.links);
-      this.wsHub.broadcast({ type: "page:created", page });
-      if (sourceId) {
-        this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "created");
+      try {
+        const page = this.pageStore.create(op);
+        this.linkIndex.updateForPage(page.frontmatter.id, page.links);
+        this.wsHub.broadcast({ type: "page:created", page });
+        if (sourceId) {
+          this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "created");
+        }
+        this.eventLog.log({ type: "page_create", pageId: page.frontmatter.id });
+        touchedPageIds.add(page.frontmatter.id);
+      } catch (err) {
+        throw wrapExecutionError(err, `create page "${op.title}"`, op);
       }
-      this.eventLog.log({ type: "page_create", pageId: page.frontmatter.id });
-      touchedPageIds.add(page.frontmatter.id);
     }
 
     for (const op of ops.updatePages) {
-      const page = this.pageStore.update(op);
-      if (page) {
-        this.linkIndex.updateForPage(page.frontmatter.id, page.links);
-        this.wsHub.broadcast({ type: "page:updated", page });
-        if (sourceId) {
-          this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "updated");
+      try {
+        const page = this.pageStore.update(op);
+        if (page) {
+          this.linkIndex.updateForPage(page.frontmatter.id, page.links);
+          this.wsHub.broadcast({ type: "page:updated", page });
+          if (sourceId) {
+            this.sourceStore.linkPageToSource(page.frontmatter.id, sourceId, "updated");
+          }
+          this.eventLog.log({ type: "page_update", pageId: page.frontmatter.id });
+          touchedPageIds.add(page.frontmatter.id);
         }
-        this.eventLog.log({ type: "page_update", pageId: page.frontmatter.id });
-        touchedPageIds.add(page.frontmatter.id);
+      } catch (err) {
+        throw wrapExecutionError(err, `update page "${op.slug}"`, op);
       }
     }
 
     for (const op of ops.createAssociations) {
-      const assoc = this.associationStore.create(op, this.llm.modelId);
-      if (assoc) {
-        this.wsHub.broadcast({ type: "association:created", association: assoc });
-        if (sourceId) {
-          this.sourceStore.linkAssociationToSource(assoc.id, sourceId);
+      try {
+        const assoc = this.associationStore.create(op, this.llm.modelId);
+        if (assoc) {
+          this.wsHub.broadcast({ type: "association:created", association: assoc });
+          if (sourceId) {
+            this.sourceStore.linkAssociationToSource(assoc.id, sourceId);
+          }
+          touchedPageIds.add(assoc.sourceId);
+          touchedPageIds.add(assoc.targetId);
         }
-        touchedPageIds.add(assoc.sourceId);
-        touchedPageIds.add(assoc.targetId);
+      } catch (err) {
+        throw wrapExecutionError(
+          err,
+          `create association ${op.source} → ${op.target} (${op.type}, weight=${op.weight})`,
+          op
+        );
       }
     }
 
     for (const op of ops.updateAssociations) {
-      const assoc = this.associationStore.update(op, this.llm.modelId);
-      if (assoc) {
-        this.wsHub.broadcast({ type: "association:updated", association: assoc });
-        if (sourceId) {
-          this.sourceStore.linkAssociationToSource(assoc.id, sourceId);
+      try {
+        const assoc = this.associationStore.update(op, this.llm.modelId);
+        if (assoc) {
+          this.wsHub.broadcast({ type: "association:updated", association: assoc });
+          if (sourceId) {
+            this.sourceStore.linkAssociationToSource(assoc.id, sourceId);
+          }
+          touchedPageIds.add(assoc.sourceId);
+          touchedPageIds.add(assoc.targetId);
         }
-        touchedPageIds.add(assoc.sourceId);
-        touchedPageIds.add(assoc.targetId);
+      } catch (err) {
+        throw wrapExecutionError(
+          err,
+          `update association ${op.source} → ${op.target}`,
+          op
+        );
       }
     }
 
@@ -422,5 +446,45 @@ ${context}`;
       this.profileService.markStale(pageId);
     }
   }
+}
+
+/**
+ * Attach operational context to an error thrown inside executeOperations
+ * so the caller (upload route, connector runner, chat handler) sees
+ * *which* operation failed and *why*, instead of a bare "constraint failed"
+ * or similar terse message.
+ *
+ * Better-sqlite3 errors carry a `code` (e.g. "SQLITE_CONSTRAINT_UNIQUE")
+ * and sometimes a full message like "UNIQUE constraint failed: pages.slug",
+ * but the bare `.message` can occasionally collapse to just "constraint
+ * failed". We pull every useful field and concatenate them into a single
+ * line, then dump the offending operation as JSON on the next line so a
+ * future you can see exactly what the LLM asked for.
+ */
+function wrapExecutionError(err: unknown, action: string, op: unknown): Error {
+  const parts: string[] = [`Failed to ${action}`];
+
+  if (err instanceof Error) {
+    const e = err as Error & { code?: string };
+    if (e.code) parts.push(`[${e.code}]`);
+    parts.push(e.message || "(no message)");
+  } else {
+    parts.push(String(err));
+  }
+
+  let payload: string;
+  try {
+    payload = JSON.stringify(op);
+  } catch {
+    payload = "(op is not serializable)";
+  }
+
+  const wrapped = new Error(`${parts.join(" ")} | op=${payload}`);
+  if (err instanceof Error && err.stack) {
+    wrapped.stack = `${wrapped.message}\n${err.stack}`;
+  }
+  // Preserve the underlying error for callers that want to inspect it
+  (wrapped as Error & { cause?: unknown }).cause = err;
+  return wrapped;
 }
 
