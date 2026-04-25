@@ -65,9 +65,19 @@ Memory Map: generated new credentials
 ───────────────────────────────────────────────────────────────
 ```
 
-Open <http://localhost:5173>, paste the key into the login screen once, and you're in for 90 days per browser. The key is also saved to `data/credentials.json` with mode `0600` so you can read it later if you forget.
+Open <http://localhost:5173>, paste the key into the login screen once, and you're in for 90 days per browser. The key is also saved to `packages/server/data/credentials.json` with mode `0600` so you can read it later if you forget. The same banner prints on every server start (with "loaded existing credentials") so you can grab the key without hunting for the file.
 
 You'll also want to add your Anthropic API key, which Memory Map needs to think. You can do this either in the UI (**Settings → API key**, recommended) or by setting `ANTHROPIC_API_KEY` in a `.env` file at the repo root. The UI takes precedence if both are set.
+
+### Optional: launch as a macOS app
+
+If you'd rather click an icon than run `pnpm dev` from a terminal:
+
+```bash
+./apps/macos-launcher/build.sh
+```
+
+This builds a `Memory Map.app` bundle into `/Applications` (pass `~/Applications` or another path as an argument to install elsewhere). The app starts the dev server, waits for it to come up, and opens the browser. Quitting the app stops the server. Logs go to `~/Library/Logs/Memory Map/memory-map.log`. See [apps/macos-launcher/README.md](apps/macos-launcher/README.md) for details.
 
 ## First things to try
 
@@ -144,7 +154,8 @@ packages/
   shared/       # types shared between server and web
   server/       # Fastify, SQLite, LLM, connectors, auth
   web/          # React UI
-data/           # generated on first run — pages, db, credentials
+apps/
+  macos-launcher/  # builds Memory Map.app to launch from Finder
 screenpipe-pipes/
   memory-map/   # Screenpipe pipe that pushes memories in
 docs/

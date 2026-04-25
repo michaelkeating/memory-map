@@ -26,38 +26,46 @@ export function loadOrCreateCredentials(): Credentials {
   fs.mkdirSync(config.dataDir, { recursive: true });
   const credPath = path.join(config.dataDir, CREDENTIALS_FILENAME);
 
+  let creds: Credentials | null = null;
+  let generated = false;
+
   if (fs.existsSync(credPath)) {
     try {
       const raw = fs.readFileSync(credPath, "utf-8");
       const parsed = JSON.parse(raw) as Credentials;
       if (parsed.apiKey && parsed.sessionSecret) {
-        mirrorKeyToScreenpipe(parsed.apiKey);
-        return parsed;
+        creds = parsed;
       }
     } catch {
       // fall through and regenerate
     }
   }
 
-  const creds: Credentials = {
-    apiKey: randomBytes(32).toString("hex"),
-    sessionSecret: randomBytes(48).toString("hex"),
-  };
+  if (!creds) {
+    creds = {
+      apiKey: randomBytes(32).toString("hex"),
+      sessionSecret: randomBytes(48).toString("hex"),
+    };
+    generated = true;
 
-  fs.writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
-  // Some filesystems ignore mode on create — re-apply explicitly
-  try {
-    fs.chmodSync(credPath, 0o600);
-  } catch {
-    // ignore
+    fs.writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+    // Some filesystems ignore mode on create — re-apply explicitly
+    try {
+      fs.chmodSync(credPath, 0o600);
+    } catch {
+      // ignore
+    }
   }
 
   mirrorKeyToScreenpipe(creds.apiKey);
 
-  // Print to console once with copy-paste instructions
   console.log("");
   console.log("───────────────────────────────────────────────────────────────");
-  console.log("Memory Map: generated new credentials");
+  console.log(
+    generated
+      ? "Memory Map: generated new credentials"
+      : "Memory Map: loaded existing credentials"
+  );
   console.log("");
   console.log(`  API key:  ${creds.apiKey}`);
   console.log("");
